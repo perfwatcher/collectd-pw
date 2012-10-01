@@ -255,6 +255,17 @@ collectd_LDADD += "-dlopen" csv.la
 collectd_DEPENDENCIES += csv.la
 endif
 
+if BUILD_PLUGIN_WRITE_MYSQL
+pkglib_LTLIBRARIES += write_mysql.la
+write_mysql_la_SOURCES = write_mysql.c
+write_mysql_la_LDFLAGS = -module -avoid-version
+collectd_LDADD += "-dlopen" write_mysql.la
+if BUILD_WITH_LIBMYSQL
+write_mysql_la_CFLAGS = $(BUILD_WITH_LIBMYSQL_CFLAGS)
+write_mysql_la_LIBADD = $(BUILD_WITH_LIBMYSQL_LIBS) -lmysqlclient_r
+endif
+collectd_DEPENDENCIES += write_mysql.la
+endif
 if BUILD_PLUGIN_CURL
 pkglib_LTLIBRARIES += curl.la
 curl_la_SOURCES = curl.c

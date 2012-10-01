@@ -4958,6 +4958,7 @@ AC_PLUGIN([vserver],     [$plugin_vserver],    [Linux VServer statistics])
 AC_PLUGIN([wireless],    [$plugin_wireless],   [Wireless statistics])
 AC_PLUGIN([write_graphite], [yes],             [Graphite / Carbon output plugin])
 AC_PLUGIN([write_http],  [$with_libcurl],      [HTTP output plugin])
+AC_PLUGIN([write_mysql], [$with_libmysql],     [MySQL output plugin])
 AC_PLUGIN([write_redis], [$with_libcredis],    [Redis output plugin])
 AC_PLUGIN([write_mongodb], [$with_libmongoc],  [MongoDB output plugin])
 AC_PLUGIN([xmms],        [$with_libxmms],      [XMMS statistics])
@@ -5289,6 +5290,7 @@ Configuration:
     wireless  . . . . . . $enable_wireless
     write_graphite  . . . $enable_write_graphite
     write_http  . . . . . $enable_write_http
+    write_mysql . . . . . $enable_write_mysql
     write_redis . . . . . $enable_write_redis
     write_mongodb . . . . $enable_write_mongodb
     xmms  . . . . . . . . $enable_xmms
