@@ -1079,6 +1079,14 @@ collectd_LDADD += "-dlopen" syslog.la
 collectd_DEPENDENCIES += syslog.la
 endif
 
+if BUILD_PLUGIN_SYSCONFIG
+pkglib_LTLIBRARIES += sysconfig.la
+sysconfig_la_SOURCES = sysconfig.c
+sysconfig_la_LDFLAGS = -module -avoid-version
+collectd_LDADD += "-dlopen" sysconfig.la
+collectd_DEPENDENCIES += sysconfig.la
+endif
+
 if BUILD_PLUGIN_TABLE
 pkglib_LTLIBRARIES += table.la
 table_la_SOURCES = table.c
