@@ -497,6 +497,22 @@ collectd_LDADD += "-dlopen" java.la
 collectd_DEPENDENCIES += java.la
 endif
 
+if BUILD_PLUGIN_JSONRPC
+pkglib_LTLIBRARIES += jsonrpc.la
+jsonrpc_la_SOURCES = jsonrpc.c
+jsonrpc_la_LDFLAGS = -module -avoid-version $(BUILD_WITH_LIBMICROHTTPD_LDFLAGS) $(BUILD_WITH_LIBJSON_LDFLAGS)
+jsonrpc_la_CFLAGS = $(AM_CFLAGS) $(BUILD_WITH_LIBMICROHTTPD_CPPFLAGS) $(BUILD_WITH_LIBJSON_CPPFLAGS)
+jsonrpc_la_LIBADD = $(BUILD_WITH_LIBMICROHTTPD_LIBS) $(BUILD_WITH_LIBJSON_LIBS)
+collectd_LDADD += "-dlopen" jsonrpc.la
+collectd_DEPENDENCIES += jsonrpc.la
+if BUILD_JSONRPC_USE_BASE
+jsonrpc_la_SOURCES += jsonrpc_cb_base.c jsonrpc_cb_base.h
+endif
+if BUILD_JSONRPC_USE_PERFWATCHER
+jsonrpc_la_SOURCES += jsonrpc_cb_perfwatcher.c jsonrpc_cb_perfwatcher.h
+endif
+endif
+
 if BUILD_PLUGIN_LIBVIRT
 pkglib_LTLIBRARIES += libvirt.la
 libvirt_la_SOURCES = libvirt.c
