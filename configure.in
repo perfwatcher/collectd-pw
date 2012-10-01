@@ -2831,6 +2831,61 @@ fi
 AM_CONDITIONAL(BUILD_WITH_LIBOPING, test "x$with_liboping" = "xyes")
 # }}}
 
+# --with-libz {{{
+AC_ARG_WITH(libz, [AS_HELP_STRING([--with-libz@<:@=PREFIX@:>@], [Path to libz.])],
+[
+ if test "x$withval" = "xyes"
+ then
+	 with_libz="yes"
+ else if test "x$withval" = "xno"
+ then
+	 with_libz="no"
+ else
+	 with_libz="yes"
+	 LIBZ_CPPFLAGS="$LIBZ_CPPFLAGS -I$withval/include"
+	 LIBZ_LDFLAGS="$LIBZ_LDFLAGS -L$withval/lib"
+ fi; fi
+],
+[with_libz="yes"])
+
+SAVE_CPPFLAGS="$CPPFLAGS"
+SAVE_LDFLAGS="$LDFLAGS"
+
+CPPFLAGS="$CPPFLAGS $LIBZ_CPPFLAGS"
+LDFLAGS="$LDFLAGS $LIBZ_LDFLAGS"
+
+if test "x$with_libz" = "xyes"
+then
+	if test "x$LIBZ_CPPFLAGS" != "x"
+	then
+		AC_MSG_NOTICE([libz CPPFLAGS: $LIBZ_CPPFLAGS])
+	fi
+	AC_CHECK_HEADERS(zlib.h,
+	[with_libz="yes"],
+	[with_libz="no (zlib.h not found)"])
+fi
+if test "x$with_libz" = "xyes"
+then
+	if test "x$LIBZ_LDFLAGS" != "x"
+	then
+		AC_MSG_NOTICE([libz LDFLAGS: $LIBZ_LDFLAGS])
+	fi
+fi
+
+CPPFLAGS="$SAVE_CPPFLAGS"
+LDFLAGS="$SAVE_LDFLAGS"
+
+if test "x$with_libz" = "xyes"
+then
+	BUILD_WITH_LIBZ_CPPFLAGS="$LIBZ_CPPFLAGS"
+	BUILD_WITH_LIBZ_LDFLAGS="$LIBZ_LDFLAGS"
+	AC_SUBST(BUILD_WITH_LIBZ_CPPFLAGS)
+	AC_SUBST(BUILD_WITH_LIBZ_LDFLAGS)
+fi
+AM_CONDITIONAL(BUILD_WITH_LIBZ, test "x$with_libz" = "xyes")
+# }}}
+
+
 # --with-oracle {{{
 with_oracle_cppflags=""
 with_oracle_libs=""
@@ -4909,6 +4964,7 @@ AC_PLUGIN([nfs],         [$plugin_nfs],        [NFS statistics])
 AC_PLUGIN([nginx],       [$with_libcurl],      [nginx statistics])
 AC_PLUGIN([notify_desktop], [$with_libnotify], [Desktop notifications])
 AC_PLUGIN([notify_email], [$with_libesmtp],    [Email notifier])
+AC_PLUGIN([notify_file], [$with_libz],		   [File notifications])
 AC_PLUGIN([ntpd],        [yes],                [NTPd statistics])
 AC_PLUGIN([numa],        [$plugin_numa],       [NUMA virtual memory statistics])
 AC_PLUGIN([nut],         [$with_libupsclient], [Network UPS tools statistics])
@@ -5170,6 +5226,7 @@ Configuration:
     libxml2 . . . . . . . $with_libxml2
     libxmms . . . . . . . $with_libxmms
     libyajl . . . . . . . $with_libyajl
+    libz      . . . . . . $with_libz
     libevent  . . . . . . $with_libevent
     protobuf-c  . . . . . $have_protoc_c
     oracle  . . . . . . . $with_oracle
@@ -5241,6 +5298,7 @@ Configuration:
     nginx . . . . . . . . $enable_nginx
     notify_desktop  . . . $enable_notify_desktop
     notify_email  . . . . $enable_notify_email
+    notify_file . . . . . $enable_notify_file
     ntpd  . . . . . . . . $enable_ntpd
     numa  . . . . . . . . $enable_numa
     nut . . . . . . . . . $enable_nut
