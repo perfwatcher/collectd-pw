@@ -1334,7 +1334,7 @@ dist_man_MANS = collectd.1 \
 
 #collectd_1_SOURCES = collectd.pod
 
-EXTRA_DIST = types.db pinba.proto
+EXTRA_DIST = types.db types-perfwatcher.db pinba.proto
 
 EXTRA_DIST +=   collectd.conf.pod \
 		collectd-email.pod \
@@ -1381,5 +1381,6 @@ install-exec-hook:
 	fi; \
 	$(mkinstalldirs) $(DESTDIR)$(pkgdatadir)
 	$(INSTALL) -m 0644 $(srcdir)/types.db $(DESTDIR)$(pkgdatadir)/types.db;
+	$(INSTALL) -m 0644 $(srcdir)/types-perfwatcher.db $(DESTDIR)$(pkgdatadir)/types-perfwatcher.db;
 	$(INSTALL) -m 0644 $(srcdir)/postgresql_default.conf \
 		$(DESTDIR)$(pkgdatadir)/postgresql_default.conf;
