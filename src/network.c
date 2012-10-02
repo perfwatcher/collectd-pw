@@ -373,7 +373,8 @@ static _Bool check_send_notify_okay (const notification_t *n) /* {{{ */
   if (n->meta == NULL)
     return (1);
   /* Enable notification forwarding */
-  return (1);
+  if (network_config_forward)
+  	return (1);
   received = check_notify_received (n);
 
   if (network_config_forward && received)
