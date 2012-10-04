@@ -47,7 +47,8 @@
  * ------------------
  * 1. Read the configuration and define the aggregators.
  * Each aggregator definition will be stored in a aggregator_definition_t structure.
- * Register a read callback for each aggregator.
+ * All those aggregator_definition_t are put in an avl_tree called... aggregator !
+ * Register a read callback for them.
  *
  * 2. Register one more callback : instances_of_types_update.
  * This callback will scan the cache tree and keep a list of types (for example "cpu") 
@@ -56,16 +57,19 @@
  * Each node of instances_of_types_tree is (key="type", value=instances_list_t*).
  * The values (instances_list_t) contains a NULL terminated string array (char **) : the type instances.
  *
- * 3.1 Each aggregator read callback start initializing a c_avl_tree_t that contains the aggregated values.
- * In other words, each time the callback is called, it starts with an empty tree.
+ * 3.1 The read callback runs each aggregator by iterating on the aggregator avl_tree.
+ * For each aggregator agg, run basic_aggregator_read(agg)
  *
- * 3.2 For each type (if "type") or instance of type (if "alltypesof" - get the list thanks
+ * 3.2 Each aggregator start initializing a c_avl_tree_t that contains the aggregated values.
+ * In other words, each time the basic_aggregator_read() is called, it starts with an empty tree.
+ *
+ * 3.3 For each type (if "type") or instance of type (if "alltypesof" - get the list thanks
  * to the instances_of_types_update callback), call basic_aggregator_update_aggregator().
  *
- * 3.3 basic_aggregator_update_aggregator() finds ou what type and instance to update.
+ * 3.4 basic_aggregator_update_aggregator() finds ou what type and instance to update.
  * Then for that instance, and for each ds, do the aggregation operations (sum...)
  *
- * 4. At the end of the callback, call basic_aggregator_submit_resultvalue().
+ * 4. At the end of basic_aggregator_read(), call basic_aggregator_submit_resultvalue().
  * This function scans the tree with the aggregated values and dispatch the results.
  *
  */
