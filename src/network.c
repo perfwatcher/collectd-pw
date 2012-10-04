@@ -375,9 +375,9 @@ static _Bool check_send_notify_okay (const notification_t *n) /* {{{ */
 
   /* Enable notification forwarding */
   if (network_config_forward)
-  	return (1);
-  else
   	return (0);
+  else
+  	return (1);
 
   received = check_notify_received (n);
 
