@@ -70,6 +70,7 @@
  *
  */
 
+static c_avl_tree_t   *aggregator = NULL;
 static c_avl_tree_t   *instances_of_types_tree = NULL;
 static pthread_mutex_t instances_of_types_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -607,13 +608,10 @@ basic_aggregator_config_aggregator_get_all_instances_of_type(char ***type_instan
 
 
 static int
-basic_aggregator_read (user_data_t *ud) {
-	aggregator_definition_t *agg;
+basic_aggregator_read (aggregator_definition_t *agg) {
 	int aggid;
 	c_avl_tree_t *ds_data;
 	int   status = 0;
-
-	agg = ud->data;
 
 	ds_data = c_avl_create ((void *) strcmp);
 
@@ -655,6 +653,21 @@ basic_aggregator_read (user_data_t *ud) {
 	return (0);
 }
 
+static int
+basic_aggregator_read_all_aggregators (void) {
+	c_avl_iterator_t *iter;
+	char *k;
+	aggregator_definition_t *agg;
+
+	iter = c_avl_get_iterator (aggregator);
+	while (c_avl_iterator_next (iter, (void *) &k, (void *) &agg) == 0)
+	{
+		basic_aggregator_read(agg);
+	} /* while (c_avl_iterator_next) */
+	c_avl_iterator_destroy (iter);
+
+	return(0);
+}
 
 static int
 basic_aggregator_config_aggregator_append_type(aggregator_definition_t *agg, char*value, char is_alltypesof) {
@@ -807,13 +820,27 @@ basic_aggregator_config_check (aggregator_definition_t *agg)
 	return(check);
 }
 
-static int
+static void
+aggregator_definition_free(aggregator_definition_t *agg) {
+		int i;
+		if(agg->resultvalue) free(agg->resultvalue);
+		if(agg->type_list) {
+				for(i=0; i<agg->type_list_size; i++) {
+						if(agg->type_list[i]) free(agg->type_list[i]);
+				}
+				free(agg->type_list);
+		}
+		if(agg->is_alltypesof) free(agg->is_alltypesof);
+		free(agg);
+}
+
+aggregator_definition_t *
 basic_aggregator_config_aggregator (oconfig_item_t *ci) {
 	aggregator_definition_t *agg;
 	int i;
 	int status = 0;
 
-	if(NULL == (agg = calloc(1, sizeof(aggregator_definition_t)))) return(-1);
+	if(NULL == (agg = calloc(1, sizeof(aggregator_definition_t)))) return(NULL);
 	for (i = 0; i < ci->children_num; i++)
 	{
 		oconfig_item_t *child = ci->children + i;
@@ -846,36 +873,13 @@ basic_aggregator_config_aggregator (oconfig_item_t *ci) {
 	}
 
 	if(0 != basic_aggregator_config_check(agg))
-		return(-1);
+		return(NULL);
 
-	if(0 == status) {
-		user_data_t *ud;
-		char *name;
-		int l1=strlen(PLUGIN_NAME_PREFIX);
-		int l2=strlen(agg->resultvalue);
-		if(NULL == (name = malloc((l1+l2+1)*sizeof(char)))) {
-			ERROR("Cannot alloc memory");
-			return(-1);
-		}
-		memcpy(name, PLUGIN_NAME_PREFIX, l1);
-		memcpy(name+l1,agg->resultvalue, l2+1);
-
-		if(NULL == (ud = calloc(1,sizeof(*ud)))) {
-			ERROR("Cannot alloc memory");
-			return(-1);
-		}
-		ud->data = agg;
-		
-		plugin_register_complex_read(
-			/* group = */     NULL,
-			/* name = */      name, 
-			/* callback = */  basic_aggregator_read,
-			/* interval = */ NULL,
-			/* user_data = */ ud
-			);
+	if(0 != status) {
+		if(agg) aggregator_definition_free(agg);
+		return(NULL);
 	} 
-	
-	return (0);
+	return(agg);
 }
 
 /* Not used yet
@@ -961,6 +965,7 @@ basic_aggregator_config_mysql_database (oconfig_item_t *ci)
 	return (status);
 }
 */
+
 static int
 basic_aggregator_config (oconfig_item_t *ci)
 {
@@ -970,13 +975,21 @@ basic_aggregator_config (oconfig_item_t *ci)
 
 	if (ci == NULL)
 		return (EINVAL);
+
+	aggregator = c_avl_create((void *) strcmp);
+	if(NULL == aggregator) return (-1);
+
 	for (i = 0; i < ci->children_num; i++)
 	{
 		oconfig_item_t *child = ci->children + i;
 
 		if (strcasecmp ("aggregator", child->key) == 0) {
-			basic_aggregator_config_aggregator (child);
-			nb_aggregators++;
+			aggregator_definition_t *agg;
+			agg = basic_aggregator_config_aggregator (child);
+			if(agg) {
+					c_avl_insert(aggregator, agg->resultvalue, agg);
+					nb_aggregators++;
+			}
 		} else if (strcasecmp ("database", child->key) == 0) {
 			if ((child->values_num < 1) || (child->values[0].type != OCONFIG_TYPE_STRING)) {
 				WARNING (OUTPUT_PREFIX_STRING "`database' needs 1 string arguments.");
@@ -987,6 +1000,7 @@ basic_aggregator_config (oconfig_item_t *ci)
 					 basic_aggregator_config_mysql_database (child);
 					 */
 				} else if (strcasecmp ("postgresql", child->values[0].value.string) == 0) {
+
 					/* Not supported yet */
 				} else {
 					WARNING (OUTPUT_PREFIX_STRING "'%s' is not a known type for `database'.", ci->values[0].value.string);
@@ -1008,4 +1022,5 @@ void module_register (void)
 {
 	plugin_register_complex_config ("basic_aggregator", basic_aggregator_config);
 	plugin_register_read ("instances_of_types_update", instances_of_types_tree_update);
+	plugin_register_read ("basic_aggregator_read_all_aggregators", basic_aggregator_read_all_aggregators);
 }
