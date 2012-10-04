@@ -74,6 +74,7 @@
  *
  */
 
+static char           *configuration_filename = NULL;
 static c_avl_tree_t   *aggregator = NULL;
 static c_avl_tree_t   *instances_of_types_tree = NULL;
 static pthread_mutex_t instances_of_types_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -83,6 +84,13 @@ typedef enum {
 	operation_AVG,
 	nb_enum_in_aggregator_operation_e
 } aggregator_operation_e;
+
+static const char *config_keys[] =
+{
+    "Aggregators_config_file"
+};
+
+static int config_keys_num = STATIC_ARRAY_SIZE (config_keys);
 
 /* 
  * Aggregators are defined as one read callback per aggregator.
@@ -971,60 +979,86 @@ basic_aggregator_config_mysql_database (oconfig_item_t *ci)
 */
 
 static int
-basic_aggregator_config (oconfig_item_t *ci)
-{
-	int i;
-	int status;
-	int nb_aggregators = 0;
+basic_aggregator_read_config_file_and_update_aggregator_definitions(char *filename) {
+		oconfig_item_t *ci;
+		int status = 0;
+		int i;
+		int nb_aggregators = 0;
 
-	if (ci == NULL)
-		return (EINVAL);
+		if(NULL == aggregator) {
+				aggregator = c_avl_create((void *) strcmp);
+				if(NULL == aggregator) return (-1);
+		}
+		ci = oconfig_parse_file (filename);
+		if(NULL == ci) {
+				WARNING (OUTPUT_PREFIX_STRING "Failed to read default config ('%s').", filename);
+				return(-1);
+		}
+		for (i = 0; i < ci->children_num; i++)
+		{
+				oconfig_item_t *child = ci->children + i;
 
-	aggregator = c_avl_create((void *) strcmp);
-	if(NULL == aggregator) return (-1);
+				if (strcasecmp ("aggregator", child->key) == 0) {
+						aggregator_definition_t *agg;
+						agg = basic_aggregator_config_aggregator (child);
+						if(agg) {
+								c_avl_insert(aggregator, agg->resultvalue, agg);
+								nb_aggregators++;
+						}
+				} else if (strcasecmp ("database", child->key) == 0) {
+						if ((child->values_num < 1) || (child->values[0].type != OCONFIG_TYPE_STRING)) {
+								WARNING (OUTPUT_PREFIX_STRING "`database' needs 1 string arguments.");
+								status = -1;
+						} else {
+								if (strcasecmp ("mysql", child->values[0].value.string) == 0) {
+										/* Not implemented yet
+										   basic_aggregator_config_mysql_database (child);
+										   */
+								} else if (strcasecmp ("postgresql", child->values[0].value.string) == 0) {
 
-	for (i = 0; i < ci->children_num; i++)
-	{
-		oconfig_item_t *child = ci->children + i;
-
-		if (strcasecmp ("aggregator", child->key) == 0) {
-			aggregator_definition_t *agg;
-			agg = basic_aggregator_config_aggregator (child);
-			if(agg) {
-					c_avl_insert(aggregator, agg->resultvalue, agg);
-					nb_aggregators++;
-			}
-		} else if (strcasecmp ("database", child->key) == 0) {
-			if ((child->values_num < 1) || (child->values[0].type != OCONFIG_TYPE_STRING)) {
-				WARNING (OUTPUT_PREFIX_STRING "`database' needs 1 string arguments.");
-				status = -1;
-			} else {
-				if (strcasecmp ("mysql", child->values[0].value.string) == 0) {
-					/* Not implemented yet
-					 basic_aggregator_config_mysql_database (child);
-					 */
-				} else if (strcasecmp ("postgresql", child->values[0].value.string) == 0) {
-
-					/* Not supported yet */
-				} else {
-					WARNING (OUTPUT_PREFIX_STRING "'%s' is not a known type for `database'.", ci->values[0].value.string);
-					status = -1;
-				}
-			}
-		} else
-			WARNING (OUTPUT_PREFIX_STRING "Option \"%s\" not allowed here.",
-					child->key);
-	}
-	INFO(OUTPUT_PREFIX_STRING "Registered %d aggregators", nb_aggregators);
-
-	return (0);
+										/* Not supported yet */
+								} else {
+										WARNING (OUTPUT_PREFIX_STRING "'%s' is not a known type for `database'.", ci->values[0].value.string);
+										status = -1;
+								}
+						}
+				} else
+						WARNING (OUTPUT_PREFIX_STRING "Option \"%s\" not allowed here.",
+										child->key);
+		}
+		INFO(OUTPUT_PREFIX_STRING "Registered %d aggregators", nb_aggregators);
+		return(status);
 }
 
+static int
+basic_aggregator_config (const char *key, const char *value)
+{
+		int status=0;
+		if (strcasecmp ("Aggregators_config_file", key) == 0)
+		{
+				if(configuration_filename) sfree (configuration_filename);
+				configuration_filename = sstrdup (value);
+		}
+		else
+		{
+				ERROR (OUTPUT_PREFIX_STRING "Unknown config option: %s", key);
+				return (-1);
+		}
+
+		if(NULL == configuration_filename) {
+				ERROR (OUTPUT_PREFIX_STRING "No configuration filename 'Aggregators_config_file' was set in the collectd config file");
+				return(-1);
+		}
+		status = basic_aggregator_read_config_file_and_update_aggregator_definitions(configuration_filename);
+
+		return (status);
+}
 
 
 void module_register (void)
 {
-	plugin_register_complex_config ("basic_aggregator", basic_aggregator_config);
+	plugin_register_config ("basic_aggregator", basic_aggregator_config,
+            config_keys, config_keys_num);
 	plugin_register_read ("instances_of_types_update", instances_of_types_tree_update);
 	plugin_register_read ("basic_aggregator_read_all_aggregators", basic_aggregator_read_all_aggregators);
 }
