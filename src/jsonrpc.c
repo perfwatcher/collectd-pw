@@ -24,10 +24,13 @@
 #include "common.h"
 #include "plugin.h"
 #include "configfile.h"
+#include "utils_cache.h"
+#include "jsonrpc.h"
 
 #include <microhttpd.h>
 
 #include <json/json.h>
+#include <pthread.h>
 
 #ifdef JSONRPC_USE_BASE
 #include "jsonrpc_cb_base.h"
@@ -59,6 +62,9 @@ typedef enum {
 } jsonrequest_encoding_e;
 
 /* Folks without pthread will need to disable this plugin. */
+
+static pthread_mutex_t local_cache_lock = PTHREAD_MUTEX_INITIALIZER;
+
 
 /*
  * Private variables
@@ -136,9 +142,85 @@ static int config_keys_num = STATIC_ARRAY_SIZE (config_keys);
 static int httpd_server_port=-1;
 static int max_clients = 16;
 
+static char **local_cache_names = NULL;
+static cdtime_t *local_cache_times = NULL;
+static size_t local_cache_number = 0;
+static time_t local_cache_update_time = 0;
+static short local_cache_is_being_updated = 0;
+#define local_cache_expiration_time 60
+
 /*
  * Functions
  */
+
+int jsonrpc_local_uc_get_names(char ***ret_names, cdtime_t **ret_times, size_t *ret_number) {
+	char **local_names;
+	cdtime_t *local_times;
+	time_t now;
+	int i;
+
+	while(local_cache_is_being_updated) sleep(1);
+
+	pthread_mutex_lock (&local_cache_lock);
+	now = time(NULL);
+	if(local_cache_update_time + local_cache_expiration_time < now) {
+		char **tmp_cache_names = NULL;
+		cdtime_t *tmp_cache_times = NULL;
+		size_t tmp_cache_number = 0;
+
+		local_cache_is_being_updated = 1;
+		for(i=0; i<local_cache_number; i++) free(local_cache_names[i]);
+		free(local_cache_names);
+		free(local_cache_times);
+		local_cache_number=0;
+		if(0 != uc_get_names(&tmp_cache_names,&tmp_cache_times,&tmp_cache_number)) {
+			local_cache_names=NULL;
+			local_cache_times=NULL;
+			local_cache_number = 0;
+			local_cache_update_time = 0;
+			local_cache_is_being_updated = 0;
+			return(-1);
+		}
+		local_cache_names=tmp_cache_names;
+		local_cache_times=tmp_cache_times;
+		local_cache_number = tmp_cache_number;
+		local_cache_update_time = time(NULL);
+		local_cache_is_being_updated = 0;
+	}
+
+	/* Duplicate the tree */
+	if(NULL == (local_names = calloc(local_cache_number,sizeof(local_names)))) {
+		*ret_names=NULL;
+		*ret_times=NULL;
+		*ret_number=0;
+		return(-1);
+	}
+	if(NULL == (local_times = calloc(local_cache_number,sizeof(local_times)))) {
+		free(local_names);
+		*ret_names=NULL;
+		*ret_times=NULL;
+		*ret_number=0;
+		return(-1);
+	}
+	for(i=0; i<local_cache_number; i++) {
+		if(NULL == (local_names[i] = strdup(local_cache_names[i]))) {
+			int j;
+			for(j=0; j<i; j++) free(local_names[j]);
+			free(local_names);
+			free(local_times);
+			*ret_names=NULL;
+			*ret_times=NULL;
+			*ret_number=0;
+		}
+		local_times[i] = local_cache_times[i];
+	}
+	*ret_names=local_names;
+	*ret_times=local_times;
+	*ret_number=local_cache_number;
+
+	pthread_mutex_unlock (&local_cache_lock);
+	return(0);
+}
 
 static int
 send_page (struct MHD_Connection *connection, const char *page,
@@ -212,10 +294,10 @@ jsonrpc_build_error_object_string(int id, int code, const char *message) {
 	const char *defined_message = NULL;
 	
 	switch(code) {
-		case -32600 : defined_message = JSONRPC_ERROR_32600; break;
-		case -32601 : defined_message = JSONRPC_ERROR_32601; break;
-		case -32602 : defined_message = JSONRPC_ERROR_32602; break;
-		case -32603 : defined_message = JSONRPC_ERROR_32603; break;
+		case JSONRPC_ERROR_CODE_32600_INVALID_REQUEST  : defined_message = JSONRPC_ERROR_32600; break;
+		case JSONRPC_ERROR_CODE_32601_METHOD_NOT_FOUND : defined_message = JSONRPC_ERROR_32601; break;
+		case JSONRPC_ERROR_CODE_32602_INVALID_PARAMS   : defined_message = JSONRPC_ERROR_32602; break;
+		case JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR   : defined_message = JSONRPC_ERROR_32603; break;
 		default: defined_message = message;
 	}
 	assert(defined_message != NULL);
@@ -256,7 +338,7 @@ jsonrpc_parse_node(struct json_object *node, char**jsonanswer) {
 			(NULL == (v = json_object_object_get(node, "method"))) ||
 			(NULL == (method = json_object_get_string(v)))
 	  ) {
-		*jsonanswer = jsonrpc_build_error_object_string(id, -32600, NULL);
+		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32600_INVALID_REQUEST, NULL);
 		return(*jsonanswer?0:-1);
 	}
 
@@ -267,17 +349,17 @@ jsonrpc_parse_node(struct json_object *node, char**jsonanswer) {
 		if(!strcmp(jsonrpc_methods_table[i].method, method)) break;
 	}
 	if(! jsonrpc_methods_table[i].cb) {
-		*jsonanswer = jsonrpc_build_error_object_string(id, -32601, NULL);
+		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32601_METHOD_NOT_FOUND, NULL);
 		return(*jsonanswer?0:-1);
 	}
 /* Create the result object */
 	if(NULL == (result = json_object_new_object())) {
-		*jsonanswer = jsonrpc_build_error_object_string(id, -32603, NULL);
+		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		return(*jsonanswer?0:-1);
 	}
 	if(NULL == (obj = json_object_new_string("2.0"))) {
 		json_object_put(result);
-		*jsonanswer = jsonrpc_build_error_object_string(id, -32603, NULL);
+		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		return(*jsonanswer?0:-1);
 	}
 	json_object_object_add(result, "jsonrpc", obj);
@@ -285,7 +367,7 @@ jsonrpc_parse_node(struct json_object *node, char**jsonanswer) {
 	if(0 != (errorcode = jsonrpc_methods_table[i].cb(params, result, &errorstring)))  {
 		json_object_put(result);
 		if(errorcode > 0) {
-			*jsonanswer = jsonrpc_build_error_object_string(id, -32603, NULL);
+			*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		} else {
 			*jsonanswer = jsonrpc_build_error_object_string(id, errorcode, errorstring);
 		}
@@ -295,20 +377,20 @@ jsonrpc_parse_node(struct json_object *node, char**jsonanswer) {
 /* Finish the result object and convert to string */
 	if(NULL == (obj = json_object_new_int(id))) {
 		json_object_put(result);
-		*jsonanswer = jsonrpc_build_error_object_string(id, -32603, NULL);
+		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		return(*jsonanswer?0:-1);
 	}
 	json_object_object_add(result, "id", obj);
 
 	if(NULL == (str = json_object_to_json_string(result))) {
 		json_object_put(result);
-		*jsonanswer = jsonrpc_build_error_object_string(id, -32603, NULL);
+		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		return(*jsonanswer?0:-1);
 	}
 
 	if(NULL == (*jsonanswer = strdup(str))) {
 		json_object_put(result);
-		*jsonanswer = jsonrpc_build_error_object_string(id, -32603, NULL);
+		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		return(*jsonanswer?0:-1);
 	}
 
