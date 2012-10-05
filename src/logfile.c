@@ -40,13 +40,15 @@ static pthread_mutex_t file_lock = PTHREAD_MUTEX_INITIALIZER;
 static char *log_file = NULL;
 static int print_timestamp = 1;
 static int print_severity = 0;
+static int log_notification = 1;
 
 static const char *config_keys[] =
 {
 	"LogLevel",
 	"File",
 	"Timestamp",
-	"PrintSeverity"
+	"PrintSeverity",
+	"LogNotification"
 };
 static int config_keys_num = STATIC_ARRAY_SIZE (config_keys);
 
@@ -70,6 +72,11 @@ static int logfile_config (const char *key, const char *value)
 			print_severity = 0;
 		else
 			print_severity = 1;
+	} else if (0 == strcasecmp(key, "LogNotification")) {
+		if (IS_FALSE (value))
+			log_notification = 0;
+		else
+			log_notification = 1;
 	}
 	else {
 		return -1;
@@ -176,7 +183,7 @@ static int logfile_notification (const notification_t *n,
 	char *buf_ptr = buf;
 	int   buf_len = sizeof (buf);
 	int status;
-
+	if (!log_notification) { return (0); }
 	status = ssnprintf (buf_ptr, buf_len, "Notification: severity = %s",
 			(n->severity == NOTIF_FAILURE) ? "FAILURE"
 			: ((n->severity == NOTIF_WARNING) ? "WARNING"
