@@ -135,7 +135,9 @@ typedef struct connection_info_struct_s
 static const char *config_keys[] =
 {
 	"Port",
-	"MaxClients"
+	"MaxClients",
+	"JsonrpcCacheExpirationTime"
+
 };
 static int config_keys_num = STATIC_ARRAY_SIZE (config_keys);
 
@@ -146,7 +148,8 @@ static char **local_cache_names = NULL;
 static cdtime_t *local_cache_times = NULL;
 static size_t local_cache_number = 0;
 static time_t local_cache_update_time = 0;
-#define local_cache_expiration_time 60
+#define jsonrpc_cache_expiration_time_default 60
+static time_t jsonrpc_cache_expiration_time = jsonrpc_cache_expiration_time_default;
 
 /*
  * Functions
@@ -170,7 +173,7 @@ int jsonrpc_local_uc_get_names(char ***ret_names, cdtime_t **ret_times, size_t *
 	update_needed = 0;
 	if(local_cache_writer <= 0) {
 		now = time(NULL);
-		if(local_cache_update_time + local_cache_expiration_time < now) {
+		if(local_cache_update_time + jsonrpc_cache_expiration_time < now) {
 			update_needed = 1;      /* local variable : we got the lock */
 			local_cache_writer = 1; /* shared variable : someone got the lock */
 		}
@@ -658,7 +661,7 @@ static int jsonrpc_config (const char *key, const char *val)
 			ERROR(OUTPUT_PREFIX_JSONRPC "Port '%d' should be between 1 and 65535", httpd_server_port);
 			return(-1);
 		}
-	} else if (strcasecmp (key, "max_clients") == 0) {
+	} else if (strcasecmp (key, "MaxClients") == 0) {
 		errno=0;
 		max_clients = strtol(val,NULL,10);
 		if(errno) {
@@ -667,6 +670,17 @@ static int jsonrpc_config (const char *key, const char *val)
 		}
 		if((max_clients < 1) || (max_clients > 65535)) {
 			ERROR(OUTPUT_PREFIX_JSONRPC "MaxClients '%d' should be between 1 and 65535", max_clients);
+			return(-1);
+		}
+	} else if (strcasecmp (key, "JsonrpcCacheExpirationTime") == 0) {
+		errno=0;
+		jsonrpc_cache_expiration_time = strtol(val,NULL,10);
+		if(errno) {
+			ERROR(OUTPUT_PREFIX_JSONRPC "JsonrpcCacheExpirationTime '%s' is not a number or could not be parsed", val);
+			return(-1);
+		}
+		if((jsonrpc_cache_expiration_time < 1) || (jsonrpc_cache_expiration_time > 3600)) {
+			ERROR(OUTPUT_PREFIX_JSONRPC "JsonrpcCacheExpirationTime '%ld' should be between 1 and 3600 seconds", jsonrpc_cache_expiration_time);
 			return(-1);
 		}
 	} else {
