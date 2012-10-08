@@ -146,7 +146,6 @@ static char **local_cache_names = NULL;
 static cdtime_t *local_cache_times = NULL;
 static size_t local_cache_number = 0;
 static time_t local_cache_update_time = 0;
-static short local_cache_is_being_updated = 0;
 #define local_cache_expiration_time 60
 
 /*
@@ -154,38 +153,64 @@ static short local_cache_is_being_updated = 0;
  */
 
 int jsonrpc_local_uc_get_names(char ***ret_names, cdtime_t **ret_times, size_t *ret_number) {
+	static int local_cache_reader = 0;
+	static short local_cache_writer = 0;
+	short update_needed = 0;
+	short read_is_possible = 0;
 	char **local_names;
 	cdtime_t *local_times;
 	time_t now;
 	int i;
 
-	while(local_cache_is_being_updated) sleep(1);
-
+	/* Check if update is needed.
+	 * If yes, and if nobody updated the local_cache_writer lock,
+	 * prepare to update.
+	 */
 	pthread_mutex_lock (&local_cache_lock);
-	now = time(NULL);
-	if(local_cache_update_time + local_cache_expiration_time < now) {
-		char **tmp_cache_names = NULL;
-		cdtime_t *tmp_cache_times = NULL;
-		size_t tmp_cache_number = 0;
+	update_needed = 0;
+	if(local_cache_writer <= 0) {
+		now = time(NULL);
+		if(local_cache_update_time + local_cache_expiration_time < now) {
+			update_needed = 1;      /* local variable : we got the lock */
+			local_cache_writer = 1; /* shared variable : someone got the lock */
+		}
+	}
+	pthread_mutex_unlock (&local_cache_lock);
 
-		local_cache_is_being_updated = 1;
+/* Check if update is needed. If we have the lock, no need to do it with the
+ * mutex locked.
+ */
+	if(update_needed) {
+		while(local_cache_reader > 0) sleep(1); /* First : wait until there is no reader */
+
 		for(i=0; i<local_cache_number; i++) free(local_cache_names[i]);
 		free(local_cache_names);
 		free(local_cache_times);
 		local_cache_number=0;
-		if(0 != uc_get_names(&tmp_cache_names,&tmp_cache_times,&tmp_cache_number)) {
+		if(0 != uc_get_names(&local_cache_names,&local_cache_times,&local_cache_number)) {
 			local_cache_names=NULL;
 			local_cache_times=NULL;
 			local_cache_number = 0;
 			local_cache_update_time = 0;
-			local_cache_is_being_updated = 0;
+			local_cache_writer = 0;
 			return(-1);
 		}
-		local_cache_names=tmp_cache_names;
-		local_cache_times=tmp_cache_times;
-		local_cache_number = tmp_cache_number;
 		local_cache_update_time = time(NULL);
-		local_cache_is_being_updated = 0;
+		local_cache_writer = 0;
+	}
+
+/* Check if we can read duplicate the date.
+ * Wait until local_cache_writer is nul (not being updated)
+ * and then, increment the number of readers.
+ */
+	read_is_possible = 0;
+	while(0 == read_is_possible) {
+		pthread_mutex_lock (&local_cache_lock);
+		if(0 == local_cache_writer) {
+			read_is_possible = 1; /* local variable */
+			local_cache_reader++; /* shared variable */
+		}
+		pthread_mutex_unlock (&local_cache_lock);
 	}
 
 	/* Duplicate the tree */
@@ -193,6 +218,9 @@ int jsonrpc_local_uc_get_names(char ***ret_names, cdtime_t **ret_times, size_t *
 		*ret_names=NULL;
 		*ret_times=NULL;
 		*ret_number=0;
+		pthread_mutex_lock (&local_cache_lock);
+		local_cache_reader--; /* shared variable */
+		pthread_mutex_unlock (&local_cache_lock);
 		return(-1);
 	}
 	if(NULL == (local_times = calloc(local_cache_number,sizeof(local_times)))) {
@@ -200,6 +228,9 @@ int jsonrpc_local_uc_get_names(char ***ret_names, cdtime_t **ret_times, size_t *
 		*ret_names=NULL;
 		*ret_times=NULL;
 		*ret_number=0;
+		pthread_mutex_lock (&local_cache_lock);
+		local_cache_reader--; /* shared variable */
+		pthread_mutex_unlock (&local_cache_lock);
 		return(-1);
 	}
 	for(i=0; i<local_cache_number; i++) {
@@ -214,11 +245,13 @@ int jsonrpc_local_uc_get_names(char ***ret_names, cdtime_t **ret_times, size_t *
 		}
 		local_times[i] = local_cache_times[i];
 	}
+	pthread_mutex_lock (&local_cache_lock);
+	local_cache_reader--;
+	pthread_mutex_unlock (&local_cache_lock);
 	*ret_names=local_names;
 	*ret_times=local_times;
 	*ret_number=local_cache_number;
 
-	pthread_mutex_unlock (&local_cache_lock);
 	return(0);
 }
 
