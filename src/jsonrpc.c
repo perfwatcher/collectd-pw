@@ -257,7 +257,7 @@ int jsonrpc_local_uc_get_names(char ***ret_names, cdtime_t **ret_times, size_t *
 
 static int
 send_page (struct MHD_Connection *connection, const char *page,
-		int status_code, enum MHD_ResponseMemoryMode mode, const char *mimetype)
+		int status_code, enum MHD_ResponseMemoryMode mode, const char *mimetype, short close_connection)
 {
 	int ret;
 	struct MHD_Response *response;
@@ -269,6 +269,9 @@ send_page (struct MHD_Connection *connection, const char *page,
 		return MHD_NO;
 
 	MHD_add_response_header(response, "Content-Type", mimetype);
+	if(close_connection) {
+		MHD_add_response_header (response, MHD_HTTP_HEADER_CONNECTION, "close");
+	}
 	ret = MHD_queue_response (connection, status_code, response);
 	MHD_destroy_response (response);
 
@@ -577,7 +580,7 @@ static int jsonrpc_proceed_request_cb(void * cls,
 		connection_info_struct_t *con_info;
 
 		if (nb_clients >= max_clients)
-			return send_page (connection, busypage, MHD_HTTP_SERVICE_UNAVAILABLE, MHD_RESPMEM_PERSISTENT, MIMETYPE_JSONRPC);
+			return send_page (connection, busypage, MHD_HTTP_SERVICE_UNAVAILABLE, MHD_RESPMEM_PERSISTENT, MIMETYPE_JSONRPC,1);
 
 
 		if(NULL == (con_info = malloc (sizeof (connection_info_struct_t)))) 
@@ -609,7 +612,7 @@ static int jsonrpc_proceed_request_cb(void * cls,
 
 	if (0 == strcmp (method, "GET"))
 	{
-		return send_page (connection, errorpage, MHD_HTTP_BAD_REQUEST, MHD_RESPMEM_PERSISTENT, MIMETYPE_TEXTHTML);
+		return send_page (connection, errorpage, MHD_HTTP_BAD_REQUEST, MHD_RESPMEM_PERSISTENT, MIMETYPE_TEXTHTML, 1);
 	}
 
 	if (0 == strcmp (method, "POST"))
@@ -631,12 +634,15 @@ static int jsonrpc_proceed_request_cb(void * cls,
 		else {
 			jsonrpc_parse_data(con_info);
 			
-			return send_page (connection, con_info->answerstring?con_info->answerstring:con_info->errorpage,
-					con_info->answercode, con_info->answerstring?MHD_RESPMEM_MUST_FREE:MHD_RESPMEM_PERSISTENT, con_info->answer_mimetype);
+			if(con_info->answerstring) {
+				return send_page (connection, con_info->answerstring, con_info->answercode, MHD_RESPMEM_MUST_FREE, con_info->answer_mimetype,0);
+			} else {
+				return send_page (connection, con_info->errorpage, con_info->answercode, MHD_RESPMEM_PERSISTENT, con_info->answer_mimetype,1);
+			}
 		}
 	}
 
-	return send_page (connection, errorpage, MHD_HTTP_BAD_REQUEST, MHD_RESPMEM_PERSISTENT, MIMETYPE_TEXTHTML);
+	return send_page (connection, errorpage, MHD_HTTP_BAD_REQUEST, MHD_RESPMEM_PERSISTENT, MIMETYPE_TEXTHTML, 1);
 }
 
 static int jsonrpc_config (const char *key, const char *val)
