@@ -383,6 +383,7 @@ static _Bool check_send_notify_okay (const notification_t *n) /* {{{ */
         "not supported, because there is not loop-deteciton available. "
         "Please contact the collectd mailing list if you need this "
         "feature.");
+		return (1);
   }
 
   /* By default, only *send* value lists that were not *received* by the
