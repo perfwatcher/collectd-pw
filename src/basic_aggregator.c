@@ -577,6 +577,7 @@ basic_aggregator_config_aggregator_get_all_instances_of_type(char ***type_instan
 	instances_list_t *v;
 	int i;
 	int typelen;
+	*type_instances = NULL;
 
 	for(l=0; type[l] && (pos < 2); l++) {
 		if(type[l] == '/') pos++;
@@ -588,12 +589,11 @@ basic_aggregator_config_aggregator_get_all_instances_of_type(char ***type_instan
 
 	pthread_mutex_lock (&instances_of_types_mutex);
 	if(0 != c_avl_get(instances_of_types_tree, subtype,(void*)&v)) {
-		*type_instances = NULL;
 		pthread_mutex_unlock (&instances_of_types_mutex);
 		return(0);
 	}
 	for(i=0; v->instance[i]; i++); /* Count how many instances the type has */
-	if(NULL == (names = malloc(i*sizeof(*type_instances)))) {
+	if(NULL == (names = malloc((i+1)*sizeof(*type_instances)))) {
 		ERROR(OUTPUT_PREFIX_STRING "Could not allocate memory");
 		pthread_mutex_unlock (&instances_of_types_mutex);
 		return(-1);
