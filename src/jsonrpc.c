@@ -74,6 +74,7 @@ typedef enum {
 /* Folks without pthread will need to disable this plugin. */
 
 static pthread_mutex_t local_cache_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t update_counters = PTHREAD_MUTEX_INITIALIZER;
 
 
 /*
@@ -279,11 +280,13 @@ send_page (struct MHD_Connection *connection, const char *page,
 	int ret;
 	struct MHD_Response *response;
 
+	pthread_mutex_lock (&update_counters);
 	switch(result) {
 		case JSONRPC_REQUEST_FAILED : nb_jsonrpc_request_failed++; break;
 		case JSONRPC_REQUEST_SUCCEEDED : nb_jsonrpc_request_success++; break;
 		default : assert (1 == 42);
 	}
+	pthread_mutex_unlock (&update_counters);
 
 	response =
 		MHD_create_response_from_buffer (strlen (page), (void *) page,
@@ -744,7 +747,7 @@ static int jsonrpc_init (void)
 	return (0);
 } /* int jsonrpc_init */
 
-static int submit_data (value_t v, unsigned int n, const char *type, const  char *type_instance)
+static int submit_data (value_t v, const char *type, const  char *type_instance)
 {
 	value_list_t vl = VALUE_LIST_INIT;
 
@@ -765,7 +768,7 @@ static int submit_gauge (unsigned int n, const char *type, const  char *type_ins
 	value_t value;
 	value.gauge = n;
 
-	submit_data(value, n,type,type_instance);
+	submit_data(value, type, type_instance);
 	
 	return (0);
 } /* int submit_derive */
@@ -775,7 +778,7 @@ static int submit_derive (unsigned int n, const char *type, const  char *type_in
 	value_t value;
 	value.derive = n;
 
-	submit_data(value, n,type,type_instance);
+	submit_data(value, type, type_instance);
 	
 	return (0);
 } /* int submit_derive */
