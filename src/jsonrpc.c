@@ -484,6 +484,10 @@ static int jsonrpc_parse_data(connection_info_struct_t *con_info) {
 		PREPARE_ERROR_PAGE(MHD_HTTP_BAD_REQUEST,parseerrorpage,MIMETYPE_TEXTHTML);
 		return(1);
 	}
+	/* Note : I have some segfault here, in json_object_is_type(), with
+	 * json-c-0.9. No more crash with json-c-0.10. So if you experiment
+	 * crashes here, check your json-c version.
+	 */
 	if(json_object_is_type (node, json_type_array)) {
 		int i;
 		int l;
