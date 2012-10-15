@@ -655,7 +655,7 @@ static int jsonrpc_proceed_request_cb(void * cls,
 
 		if (0 != *upload_data_size)
 		{
-			if(NULL == (con_info->jsonrequest = realloc(con_info->jsonrequest, (con_info->jsonrequest_size+(*upload_data_size))*sizeof(*con_info->jsonrequest)))) 
+			if(NULL == (con_info->jsonrequest = realloc(con_info->jsonrequest, (1+con_info->jsonrequest_size+(*upload_data_size))*sizeof(*con_info->jsonrequest)))) 
 				return MHD_NO;
 
 			memcpy(con_info->jsonrequest+ con_info->jsonrequest_size, upload_data, *upload_data_size);
@@ -666,6 +666,13 @@ static int jsonrpc_proceed_request_cb(void * cls,
 			return MHD_YES;
 		}
 		else {
+			if(NULL == con_info->jsonrequest) {
+				return send_page (connection, con_info->errorpage, con_info->answercode, MHD_RESPMEM_PERSISTENT, con_info->answer_mimetype,
+				CLOSE_CONNECTION_YES, JSONRPC_REQUEST_FAILED);
+			}
+
+			con_info->jsonrequest[con_info->jsonrequest_size] = '\0';
+
 			jsonrpc_parse_data(con_info);
 			
 			if(con_info->answerstring) {
