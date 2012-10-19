@@ -1,0 +1,22 @@
+2012-10-17 version 5.1.0-20121017
+* bugfix (see git log of merged branches)
+
+2012-10-10 version 5.1.0-20121010
+* Collectd-5.1.0
+* Applied the following patches (git branches) :
+  -patch/Fix-for-large-MaxPacketSize
+  -patch/cpu
+  -patch/disk
+  -patch/fix_make_distcheck
+  -patch/logfile
+  -patch/notification_forwarding
+  -patch/process
+  -patch/rrdtool_create_only
+  -patch/utils_cache_bugfix
+  -plugin/basic_aggregator
+  -plugin/jsonrpc
+  -plugin/notify_file
+  -plugin/sysconfig
+  -plugin/top
+  -plugin/write_mysql
+
