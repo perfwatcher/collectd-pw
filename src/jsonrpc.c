@@ -174,9 +174,146 @@ static time_t local_cache_update_time = 0;
 #define jsonrpc_cache_expiration_time_default 60
 static time_t jsonrpc_cache_expiration_time = jsonrpc_cache_expiration_time_default;
 
+typedef struct {
+	char **names;
+	cdtime_t *times;
+	size_t number;
+	time_t update_time;
+	int ref;
+	short ready;
+} uc_cache_copy_t;
+
+static uc_cache_copy_t uc_cache_copy[] = {
+	{NULL,NULL,0,0,0,0},
+	{NULL,NULL,0,0,0,0},
+	{NULL,NULL,0,0,0,0},
+	{NULL,NULL,0,0,0,0},
+	{NULL,NULL,0,0,0,0}
+};
+#define NB_CACHE_ENTRY_MAX (sizeof(uc_cache_copy)/sizeof(*uc_cache_copy))
+
 /*
  * Functions
  */
+
+int jsonrpc_cache_last_entry_find(void) {
+	time_t update_time = 0;
+	int last_cache_entry = -1;
+	int i;
+	for(i=0; i<NB_CACHE_ENTRY_MAX; i++) {
+		if(uc_cache_copy[i].ready && (uc_cache_copy[i].update_time  > update_time)) {
+			update_time = uc_cache_copy[i].update_time;
+			last_cache_entry = i;
+		}
+	}
+	return(last_cache_entry);
+}
+
+int jsonrpc_cache_last_entry_find_and_ref(char ***ret_names, cdtime_t **ret_times, size_t *ret_number) {
+	time_t update_time = 0;
+	int last_cache_entry = -1;
+	int i;
+
+	pthread_mutex_lock (&local_cache_lock);
+	for(i=0; i<NB_CACHE_ENTRY_MAX; i++) {
+		if(uc_cache_copy[i].ready && (uc_cache_copy[i].update_time  > update_time)) {
+			update_time = uc_cache_copy[i].update_time;
+			last_cache_entry = i;
+		}
+	}
+	if(-1 != last_cache_entry) {
+		uc_cache_copy[i].ref++;
+		*ret_names = uc_cache_copy[i].names;
+		*ret_times = uc_cache_copy[i].times;
+		*ret_number = uc_cache_copy[i].number;
+	}
+	pthread_mutex_unlock (&local_cache_lock);
+	return(last_cache_entry);
+}
+
+void jsonrpc_cache_entry_unref(int cache_id) {
+	pthread_mutex_lock (&local_cache_lock);
+	uc_cache_copy[cache_id].ref--;
+	assert(uc_cache_copy[cache_id].ref >= 0);
+	pthread_mutex_unlock (&local_cache_lock);
+	return;
+}
+
+int jsonrpc_update_cache() {
+	time_t now;
+	int i;
+	int last_cache_entry = -1;
+	int free_cache_entry = -1;
+	short update_needed = 0;
+
+	last_cache_entry = jsonrpc_cache_last_entry_find();
+	/*
+	 * Free old cache memory
+	 */
+	for(i=0; i<NB_CACHE_ENTRY_MAX; i++) {
+		if(uc_cache_copy[i].ready && (uc_cache_copy[i].ref == 0) && (i != last_cache_entry)) {
+			int j;
+			uc_cache_copy[i].ready=0;
+			for(j=0; j<uc_cache_copy[i].number; j++) free(uc_cache_copy[i].names[j]);
+			free(uc_cache_copy[i].names);
+			free(uc_cache_copy[i].times);
+			uc_cache_copy[i].names=NULL;
+			uc_cache_copy[i].times=NULL;
+			uc_cache_copy[i].number=0;
+			uc_cache_copy[i].update_time=0;
+		}
+	}
+
+	/* 
+	 * Check if update is needed.
+	 */
+	now = time(NULL);
+	if(-1 == last_cache_entry) { 
+		update_needed = 1;
+	}
+	else if((uc_cache_copy[last_cache_entry].update_time + jsonrpc_cache_expiration_time) < now) {
+		update_needed = 1;
+	}
+	if(0 == update_needed) {
+		return(0);
+	}
+
+	/*
+	 * Find free entry
+	 */
+	free_cache_entry = -1;
+	for(i=0; i<NB_CACHE_ENTRY_MAX; i++) {
+		if(0 == uc_cache_copy[i].ready) {
+			free_cache_entry = i;
+			break;
+		}
+	}
+	if(-1 == free_cache_entry) {
+		ERROR(OUTPUT_PREFIX_JSONRPC "Not enough cache entry. This is probably a problem"
+				" where restarting is the best solution.");
+		assert(free_cache_entry != -1);
+	}
+
+	if(0 != uc_get_names(
+				&(uc_cache_copy[free_cache_entry].names),
+				&(uc_cache_copy[free_cache_entry].times),
+				&(uc_cache_copy[free_cache_entry].number)
+				)) {
+		uc_cache_copy[free_cache_entry].names=NULL;
+		uc_cache_copy[free_cache_entry].times=NULL;
+		uc_cache_copy[free_cache_entry].number = 0;
+
+		uc_cache_copy[free_cache_entry].update_time=0;
+		uc_cache_copy[free_cache_entry].ref=0;
+		uc_cache_copy[free_cache_entry].ready=0;
+		return(-1);
+	}
+	uc_cache_copy[free_cache_entry].update_time = time(NULL);
+	uc_cache_copy[free_cache_entry].ref = 0;
+	uc_cache_copy[free_cache_entry].ready = 1;
+
+	return(0);
+}
 
 int jsonrpc_local_uc_get_names(char ***ret_names, cdtime_t **ret_times, size_t *ret_number) {
 	static int local_cache_reader = 0;
@@ -847,6 +984,9 @@ static int jsonrpc_read (void)
 	submit_derive(nb_jsonrpc_request_failed, "total_requests", "nb_request_failed");
 	submit_derive(nb_jsonrpc_request_success, "total_requests", "nb_request_succeeded");
 	submit_derive(nb_new_connections, "http_requests", "nb_connections");
+
+	jsonrpc_update_cache();
+
 	return (0);
 } /* int jsonrpc_read */
 
