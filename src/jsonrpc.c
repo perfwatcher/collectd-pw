@@ -209,6 +209,17 @@ int jsonrpc_cache_last_entry_find(void) {
 	return(last_cache_entry);
 }
 
+int jsonrpc_cache_nb_entries(void) {
+	int i;
+	int n=0;
+	for(i=0; i<NB_CACHE_ENTRY_MAX; i++) {
+		if(uc_cache_copy[i].ready) {
+			n++;
+		}
+	}
+	return(n);
+}
+
 int jsonrpc_cache_last_entry_find_and_ref(char ***ret_names, cdtime_t **ret_times, size_t *ret_number) {
 	time_t update_time = 0;
 	int last_cache_entry = -1;
@@ -986,6 +997,7 @@ static int jsonrpc_read (void)
 	submit_derive(nb_new_connections, "http_requests", "nb_connections");
 
 	jsonrpc_update_cache();
+	submit_gauge(jsonrpc_cache_nb_entries(), "cache_size", "nb_used_cached");
 
 	return (0);
 } /* int jsonrpc_read */
