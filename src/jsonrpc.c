@@ -222,7 +222,7 @@ int jsonrpc_cache_last_entry_find_and_ref(char ***ret_names, cdtime_t **ret_time
 		}
 	}
 	if(-1 != last_cache_entry) {
-		uc_cache_copy[i].ref++;
+		uc_cache_copy[last_cache_entry].ref++;
 		*ret_names = uc_cache_copy[last_cache_entry].names;
 		*ret_times = uc_cache_copy[last_cache_entry].times;
 		*ret_number = uc_cache_copy[last_cache_entry].number;
