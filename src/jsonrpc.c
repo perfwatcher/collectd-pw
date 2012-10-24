@@ -167,20 +167,40 @@ static int config_keys_num = STATIC_ARRAY_SIZE (config_keys);
 static int httpd_server_port=-1;
 static int max_clients = 16;
 
-static char **local_cache_names = NULL;
-static cdtime_t *local_cache_times = NULL;
-static size_t local_cache_number = 0;
-static time_t local_cache_update_time = 0;
-#define jsonrpc_cache_expiration_time_default 60
-static time_t jsonrpc_cache_expiration_time = jsonrpc_cache_expiration_time_default;
+
+/* Cache of the tree
+ * =================
+ *
+ * This cache is updated with the jsonrpc_read callback.
+ * It updates the cache when it is older than
+ * JSONRPC_CACHE_EXPIRATION_TIME_DEFAULT seconds.
+ *
+ * How does it work ?
+ * - uc_cache_copy is an array of caches (there a 4 or 5 slots and only 2
+ *   should be used, but we never know if we need more).
+ * 
+ * - jsonrpc_update_cache() updates the caches and free unused older caches.
+ *
+ * - each time a function needs to use a copy of the cache, it will find and
+ *   reference the latest cache (jsonrpc_cache_last_entry_find_and_ref()).
+ * - when the cache is no more needed, it dereferences the copy
+ *   (jsonrpc_cache_entry_unref()).
+ * Example:
+ *   int cache_id = jsonrpc_cache_last_entry_find_and_ref(&names,&times,&number);
+ *   play with names,times and number
+ *   jsonrpc_cache_entry_unref(cache_id);
+ *
+ */
+#define JSONRPC_CACHE_EXPIRATION_TIME_DEFAULT 60
+static time_t jsonrpc_cache_expiration_time = JSONRPC_CACHE_EXPIRATION_TIME_DEFAULT;
 
 typedef struct {
 	char **names;
 	cdtime_t *times;
 	size_t number;
 	time_t update_time;
-	int ref;
-	short ready;
+	int ref; /* nb of json methods or whatever that are using this copy */
+	short ready; /* 1 if this is a valid cache, otherwise 0 */
 } uc_cache_copy_t;
 
 static uc_cache_copy_t uc_cache_copy[] = {
@@ -326,108 +346,7 @@ int jsonrpc_update_cache() {
 	return(0);
 }
 
-int jsonrpc_local_uc_get_names(char ***ret_names, cdtime_t **ret_times, size_t *ret_number) {
-	static int local_cache_reader = 0;
-	static short local_cache_writer = 0;
-	short update_needed = 0;
-	short read_is_possible = 0;
-	char **local_names;
-	cdtime_t *local_times;
-	time_t now;
-	int i;
-
-	/* Check if update is needed.
-	 * If yes, and if nobody updated the local_cache_writer lock,
-	 * prepare to update.
-	 */
-	pthread_mutex_lock (&local_cache_lock);
-	update_needed = 0;
-	if(local_cache_writer <= 0) {
-		now = time(NULL);
-		if(local_cache_update_time + jsonrpc_cache_expiration_time < now) {
-			update_needed = 1;      /* local variable : we got the lock */
-			local_cache_writer = 1; /* shared variable : someone got the lock */
-		}
-	}
-	pthread_mutex_unlock (&local_cache_lock);
-
-/* Check if update is needed. If we have the lock, no need to do it with the
- * mutex locked.
- */
-	if(update_needed) {
-		while(local_cache_reader > 0) sleep(1); /* First : wait until there is no reader */
-
-		for(i=0; i<local_cache_number; i++) free(local_cache_names[i]);
-		free(local_cache_names);
-		free(local_cache_times);
-		local_cache_number=0;
-		if(0 != uc_get_names(&local_cache_names,&local_cache_times,&local_cache_number)) {
-			local_cache_names=NULL;
-			local_cache_times=NULL;
-			local_cache_number = 0;
-			local_cache_update_time = 0;
-			local_cache_writer = 0;
-			return(-1);
-		}
-		local_cache_update_time = time(NULL);
-		local_cache_writer = 0;
-	}
-
-/* Check if we can read duplicate the date.
- * Wait until local_cache_writer is nul (not being updated)
- * and then, increment the number of readers.
- */
-	read_is_possible = 0;
-	while(0 == read_is_possible) {
-		pthread_mutex_lock (&local_cache_lock);
-		if(0 == local_cache_writer) {
-			read_is_possible = 1; /* local variable */
-			local_cache_reader++; /* shared variable */
-		}
-		pthread_mutex_unlock (&local_cache_lock);
-	}
-
-	/* Duplicate the tree */
-	if(NULL == (local_names = calloc(local_cache_number,sizeof(local_names)))) {
-		*ret_names=NULL;
-		*ret_times=NULL;
-		*ret_number=0;
-		pthread_mutex_lock (&local_cache_lock);
-		local_cache_reader--; /* shared variable */
-		pthread_mutex_unlock (&local_cache_lock);
-		return(-1);
-	}
-	if(NULL == (local_times = calloc(local_cache_number,sizeof(local_times)))) {
-		free(local_names);
-		*ret_names=NULL;
-		*ret_times=NULL;
-		*ret_number=0;
-		pthread_mutex_lock (&local_cache_lock);
-		local_cache_reader--; /* shared variable */
-		pthread_mutex_unlock (&local_cache_lock);
-		return(-1);
-	}
-	for(i=0; i<local_cache_number; i++) {
-		if(NULL == (local_names[i] = strdup(local_cache_names[i]))) {
-			int j;
-			for(j=0; j<i; j++) free(local_names[j]);
-			free(local_names);
-			free(local_times);
-			*ret_names=NULL;
-			*ret_times=NULL;
-			*ret_number=0;
-		}
-		local_times[i] = local_cache_times[i];
-	}
-	pthread_mutex_lock (&local_cache_lock);
-	local_cache_reader--;
-	pthread_mutex_unlock (&local_cache_lock);
-	*ret_names=local_names;
-	*ret_times=local_times;
-	*ret_number=local_cache_number;
-
-	return(0);
-}
+/* HTTP stuff */
 
 static int
 send_page (struct MHD_Connection *connection, const char *page,
