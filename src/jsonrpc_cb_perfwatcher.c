@@ -42,10 +42,12 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 		char **names = NULL;
 		cdtime_t *times = NULL;
 		size_t number = 0;
-		int status;
+		int cache_id;
 		c_avl_iterator_t *avl_iter;
 		char *key;
 		void *idx;
+		char *buffer=NULL;
+		int buffer_len = 0;
 
 
 
@@ -105,10 +107,10 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 				c_avl_insert(servers, (void*)str, (void*)NULL+i);
 		}
 		/* Get the names */
-		status = jsonrpc_local_uc_get_names (&names, &times, &number);
-		if (status != 0)
+		cache_id = jsonrpc_cache_last_entry_find_and_ref (&names, &times, &number);
+		if (cache_id == -1)
 		{
-				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "uc_get_names failed with status %i", status);
+				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "uc_get_names failed with status %i", cache_id);
 				c_avl_destroy(servers);
 				free(servers_status);
 				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
@@ -121,18 +123,26 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 
 				t = times[i];
 				for(j=0; names[i][j] && names[i][j] != '/'; j++);
-				names[i][j] = '\0';
+				if(j>= buffer_len) {
+						if(NULL == (buffer = realloc(buffer, j+1024))) {
+								c_avl_destroy(servers);
+								free(servers_status);
+								jsonrpc_cache_entry_unref(cache_id);
+								return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+						}
+						buffer_len = j+1024;
+				}
+				memcpy(buffer, names[i],j);
+				buffer[j] = '\0';
 
-				if(0 == c_avl_get(servers, names[i], &idx)) {
+				if(0 == c_avl_get(servers, buffer, &idx)) {
 						assert((unsigned long)idx >= 0);
 						assert((unsigned long)idx < array_len);
 						if(times[i] > servers_status[(unsigned long)idx]) servers_status[(unsigned long)idx] = times[i];
 				}
-				sfree(names[i]);
-				names[i] = NULL;
 		}
-		sfree(names);
-		sfree(times);
+		jsonrpc_cache_entry_unref(cache_id);
+		if(buffer) free(buffer);
 
 		/* What time is it ? */
 		now_before_timeout = cdtime();
@@ -200,10 +210,12 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 		char **names = NULL;
 		cdtime_t *times = NULL;
 		size_t number = 0;
-		int status;
+		int cache_id;
 		c_avl_iterator_t *avl_iter;
 		char *key;
 		void *useless_var;
+		char *buffer=NULL;
+		int buffer_len = 0;
 
 		/* Parse the params */
 		if(!json_object_is_type (params, json_type_array)) {
@@ -239,10 +251,10 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 				c_avl_insert(servers, (void*)str, (void*)NULL);
 		}
 		/* Get the names */
-		status = jsonrpc_local_uc_get_names (&names, &times, &number);
-		if (status != 0)
+		cache_id = jsonrpc_cache_last_entry_find_and_ref (&names, &times, &number);
+		if (cache_id != 0)
 		{
-				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "uc_get_names failed with status %i", status);
+				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "uc_get_names failed with status %i", cache_id);
 				c_avl_destroy(servers);
 				c_avl_destroy(metrics);
 				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
@@ -254,10 +266,21 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 
 				for(j=0; names[i][j] && names[i][j] != '/'; j++);
 				assert(names[i][j] != '\0');
-				names[i][j] = '\0';
+				if(j>= buffer_len) {
+						if(NULL == (buffer = realloc(buffer, j+1024))) {
+								c_avl_destroy(servers);
+								free_avl_tree_keys(metrics);
+								c_avl_destroy(metrics);
+								jsonrpc_cache_entry_unref(cache_id);
+								return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+						}
+						buffer_len = j+1024;
+				}
+				memcpy(buffer, names[i],j);
+				buffer[j] = '\0';
 
 				if(
-								(0 == c_avl_get(servers, names[i], NULL)) /* if the name is in the list */
+								(0 == c_avl_get(servers, buffer, NULL)) /* if the name is in the list */
 								&& (0 != c_avl_get(metrics, names[i]+j+1, NULL)) /* and if the metric is NOT already known */
 				  ) {
 						char *m;
@@ -265,22 +288,16 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 								c_avl_destroy(servers);
 								free_avl_tree_keys(metrics);
 								c_avl_destroy(metrics);
-								for(j=i; i<number; j++) {
-										sfree(names[j]);
-										names[j] = NULL;
-								}
-								sfree(names);
-								sfree(times);
+								jsonrpc_cache_entry_unref(cache_id);
+								if(buffer) free(buffer);
 								return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 
 						}
 						c_avl_insert(metrics, (void*)m, (void*)NULL);
 				}
-				sfree(names[i]);
-				names[i] = NULL;
 		}
-		sfree(names);
-		sfree(times);
+		jsonrpc_cache_entry_unref(cache_id);
+		if(buffer) free(buffer);
 
 		/* Check the servers and build the result array */
 		if(NULL == (result_metrics_array = json_object_new_array())) {
@@ -305,7 +322,7 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 						c_avl_destroy(metrics);
 						return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 				}
-			json_object_array_add(result_metrics_array,obj);
+				json_object_array_add(result_metrics_array,obj);
 		}
 		c_avl_iterator_destroy(avl_iter);
 
