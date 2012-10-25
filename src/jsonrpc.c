@@ -203,14 +203,24 @@ typedef struct {
 	short ready; /* 1 if this is a valid cache, otherwise 0 */
 } uc_cache_copy_t;
 
-static uc_cache_copy_t uc_cache_copy[] = {
-	{NULL,NULL,0,0,0,0},
-	{NULL,NULL,0,0,0,0},
-	{NULL,NULL,0,0,0,0},
-	{NULL,NULL,0,0,0,0},
-	{NULL,NULL,0,0,0,0}
+/* NB_CACHE_ENTRY_MAX should be < 10.
+ * If you want more than 10, check the cache_plugin_instance array.
+ */
+#define NB_CACHE_ENTRY_MAX 6
+static uc_cache_copy_t uc_cache_copy[NB_CACHE_ENTRY_MAX];
+
+static char *cache_plugin_instance[] = {
+	"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+	"10", "11", "12", "13", "14", "15", "16", "17", "18", "19",
+	"20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
+	"30", "31", "32", "33", "34", "35", "36", "37", "38", "39",
+	"40", "41", "42", "43", "44", "45", "46", "47", "48", "49",
+	"50", "51", "52", "53", "54", "55", "56", "57", "58", "59",
+	"60", "61", "62", "63", "64", "65", "66", "67", "68", "69",
+	"70", "71", "72", "73", "74", "75", "76", "77", "78", "79",
+	"80", "81", "82", "83", "84", "85", "86", "87", "88", "89",
+	"90", "91", "92", "93", "94", "95", "96", "97", "98", "99",
 };
-#define NB_CACHE_ENTRY_MAX (sizeof(uc_cache_copy)/sizeof(*uc_cache_copy))
 
 /*
  * Functions
@@ -849,6 +859,15 @@ static int jsonrpc_init (void)
 		return (0);
 	have_init = 1;
 
+	/* Initialize the local caches */
+	memset(uc_cache_copy, '\0', sizeof(uc_cache_copy));
+
+	/* Verification for developers who would set a too big value here */
+	if(NB_CACHE_ENTRY_MAX > (sizeof(cache_plugin_instance)/sizeof(*cache_plugin_instance))) {
+		ERROR(OUTPUT_PREFIX_JSONRPC "NB_CACHE_ENTRY_MAX should not be so big (you specified %d at compilation time)", NB_CACHE_ENTRY_MAX);
+		assert(NB_CACHE_ENTRY_MAX <= (sizeof(cache_plugin_instance)/sizeof(*cache_plugin_instance)));
+	}
+
 	/* Start the web server */
 	jsonrpc_daemon = MHD_start_daemon(
 			MHD_USE_THREAD_PER_CONNECTION,
@@ -906,6 +925,7 @@ static int submit_derive (unsigned int n, const char *type, const  char *type_in
 static int jsonrpc_read (void)
 {
 	static int first_time = 1;
+	int i;
 	if(first_time) {
 		INFO(OUTPUT_PREFIX_JSONRPC "Compilation time : %s %s", __DATE__, __TIME__);
 		first_time = 0;
@@ -917,6 +937,9 @@ static int jsonrpc_read (void)
 
 	jsonrpc_update_cache();
 	submit_gauge(jsonrpc_cache_nb_entries(), "cache_size", "nb_used_cached");
+	for(i=0; i<NB_CACHE_ENTRY_MAX; i++) {
+		submit_gauge(uc_cache_copy[i].ready?uc_cache_copy[i].ref:0, "cache_entries", cache_plugin_instance[i]);
+	}
 
 	return (0);
 } /* int jsonrpc_read */
