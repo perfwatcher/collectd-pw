@@ -440,6 +440,7 @@ char *
 jsonrpc_build_error_object_string(int id, int code, const char *message) {
 	char *result;
 	int lmessage;
+	int len;
 	const char *defined_message = NULL;
 	
 	switch(code) {
@@ -452,9 +453,10 @@ jsonrpc_build_error_object_string(int id, int code, const char *message) {
 	assert(defined_message != NULL);
 
 	lmessage = strlen(defined_message);
-	if(NULL == (result = malloc(strlen(jsonerrorstringformat)+lmessage+30))) 
+	len = strlen(jsonerrorstringformat)+lmessage+30;
+	if(NULL == (result = malloc(len))) 
 		return(NULL);
-	sprintf(result, jsonerrorstringformat, code, defined_message, id);
+	snprintf(result, len, jsonerrorstringformat, code, defined_message, id);
 	return(result);
 }
 
