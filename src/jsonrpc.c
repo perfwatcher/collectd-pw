@@ -503,11 +503,13 @@ jsonrpc_parse_node(struct json_object *node, char**jsonanswer) {
 	}
 /* Create the result object */
 	if(NULL == (result = json_object_new_object())) {
+		DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
 		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		return(*jsonanswer?0:-1);
 	}
 	if(NULL == (obj = json_object_new_string("2.0"))) {
 		json_object_put(result);
+		DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
 		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		return(*jsonanswer?0:-1);
 	}
@@ -516,6 +518,7 @@ jsonrpc_parse_node(struct json_object *node, char**jsonanswer) {
 	if(0 != (errorcode = jsonrpc_methods_table[i].cb(params, result, &errorstring)))  {
 		json_object_put(result);
 		if(errorcode > 0) {
+			DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
 			*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		} else {
 			*jsonanswer = jsonrpc_build_error_object_string(id, errorcode, errorstring);
@@ -526,6 +529,7 @@ jsonrpc_parse_node(struct json_object *node, char**jsonanswer) {
 /* Finish the result object and convert to string */
 	if(NULL == (obj = json_object_new_int(id))) {
 		json_object_put(result);
+		DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
 		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		return(*jsonanswer?0:-1);
 	}
@@ -533,12 +537,14 @@ jsonrpc_parse_node(struct json_object *node, char**jsonanswer) {
 
 	if(NULL == (str = json_object_to_json_string(result))) {
 		json_object_put(result);
+		DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
 		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		return(*jsonanswer?0:-1);
 	}
 
 	if(NULL == (*jsonanswer = strdup(str))) {
 		json_object_put(result);
+		DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
 		*jsonanswer = jsonrpc_build_error_object_string(id, JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR, NULL);
 		return(*jsonanswer?0:-1);
 	}
