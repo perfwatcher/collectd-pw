@@ -78,7 +78,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 		}
 
 		if(NULL == (servers = c_avl_create((int (*) (const void *, const void *)) strcmp))) {
-				DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 		}
 		al = json_object_get_array(server_array);
@@ -86,7 +86,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 		array_len = json_object_array_length (server_array);
 		if(NULL == (servers_status = malloc(array_len * sizeof(*servers_status)))) {
 				c_avl_destroy(servers);
-				DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 		}
 		for(i=0; i<array_len; i++) {
@@ -103,7 +103,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 				if(NULL == (str = json_object_get_string(element))) {
 						c_avl_destroy(servers);
 						free(servers_status);
-						DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+						DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 						return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 
 				}
@@ -116,7 +116,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "uc_get_names failed with status %i", cache_id);
 				c_avl_destroy(servers);
 				free(servers_status);
-				DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 		}
 
@@ -132,7 +132,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 								c_avl_destroy(servers);
 								free(servers_status);
 								jsonrpc_cache_entry_unref(cache_id);
-								DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+								DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 								return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 						}
 						buffer_len = j+1024;
@@ -156,10 +156,10 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 
 		/* Check the servers and build the result array */
 		if(NULL == (result_servers_object = json_object_new_object())) {
-				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_BASE "Could not create a json array");
+				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json array");
 				c_avl_destroy(servers);
 				free(servers_status);
-				DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 		}
 
@@ -176,12 +176,12 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 
 
 				if(NULL == obj) {
-						DEBUG (OUTPUT_PREFIX_JSONRPC_CB_BASE "Could not create a json string");
+						DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json string");
 						c_avl_iterator_destroy(avl_iter);
 						json_object_put(result_servers_object);
 						c_avl_destroy(servers);
 						free(servers_status);
-						DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+						DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 						return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 				}
 				json_object_object_add(result_servers_object, key, obj);
@@ -230,12 +230,12 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 		}
 
 		if(NULL == (servers = c_avl_create((int (*) (const void *, const void *)) strcmp))) {
-				DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 		}
 		if(NULL == (metrics = c_avl_create((int (*) (const void *, const void *)) strcmp))) {
 				c_avl_destroy(servers);
-				DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 		}
 		al = json_object_get_array(params);
@@ -254,7 +254,7 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 				if(NULL == (str = json_object_get_string(element))) {
 						c_avl_destroy(servers);
 						c_avl_destroy(metrics);
-						DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+						DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 						return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 
 				}
@@ -267,7 +267,7 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "uc_get_names failed with status %i", cache_id);
 				c_avl_destroy(servers);
 				c_avl_destroy(metrics);
-				DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 		}
 
@@ -283,7 +283,7 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 								free_avl_tree_keys(metrics);
 								c_avl_destroy(metrics);
 								jsonrpc_cache_entry_unref(cache_id);
-								DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+								DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 								return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 						}
 						buffer_len = j+1024;
@@ -302,7 +302,7 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 								c_avl_destroy(metrics);
 								jsonrpc_cache_entry_unref(cache_id);
 								if(buffer) free(buffer);
-								DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+								DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 								return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 
 						}
@@ -314,11 +314,11 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 
 		/* Check the servers and build the result array */
 		if(NULL == (result_metrics_array = json_object_new_array())) {
-				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_BASE "Could not create a json array");
+				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json array");
 				c_avl_destroy(servers);
 				free_avl_tree_keys(metrics);
 				c_avl_destroy(metrics);
-				DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 		}
 
@@ -328,13 +328,13 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 				struct json_object *obj;
 
 				if(NULL == (obj =  json_object_new_string(key))) {
-						DEBUG (OUTPUT_PREFIX_JSONRPC_CB_BASE "Could not create a json string");
+						DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json string");
 						c_avl_iterator_destroy(avl_iter);
 						json_object_put(result_metrics_array);
 						c_avl_destroy(servers);
 						free_avl_tree_keys(metrics);
 						c_avl_destroy(metrics);
-						DEBUG(OUTPUT_PREFIX_JSONRPC "Internal error %s:%d", __FILE__, __LINE__);
+						DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
 						return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 				}
 				json_object_array_add(result_metrics_array,obj);
