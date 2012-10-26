@@ -128,7 +128,7 @@ static int getStat(int pid, stat_t *s) {
     
     char buf[256]; 
     FILE *proc; 
-    sprintf(buf,"/proc/%d/stat",pid); 
+    snprintf(buf,sizeof(buf), "/proc/%d/stat",pid); 
     proc = fopen(buf,"r"); 
     if (proc) { 
         if (39 == fscanf(proc, statformat, 
@@ -150,7 +150,7 @@ static int getStatus(int pid, status_t *s) {
     char name[256];
     char buf[256]; 
     FILE *proc; 
-    sprintf(name,"/proc/%d/status",pid); 
+    snprintf(name,sizeof(name), "/proc/%d/status",pid); 
     proc = fopen(name,"r"); 
     if (proc) { 
     	char *status; 
@@ -219,8 +219,8 @@ static int getStat (int pid, stat_t *s)
   pstatus_t *myStatus;
   psinfo_t *myInfo;
 
-  sprintf (f_status, "/proc/%d/status", pid);
-  sprintf (f_psinfo, "/proc/%d/psinfo", pid);
+  snprintf (f_status, sizeof(f_status), "/proc/%d/status", pid);
+  snprintf (f_psinfo, sizeof(f_psinfo), "/proc/%d/psinfo", pid);
 
   buffer = malloc (sizeof (pstatus_t));
   memset (buffer, 0, sizeof (pstatus_t));
@@ -253,7 +253,7 @@ static int getStatus (int pid, status_t *s)
 
   psinfo_t *myInfo;
 
-  sprintf (f_psinfo, "/proc/%d/psinfo", pid);
+  snprintf (f_psinfo, sizeof(f_psinfo), "/proc/%d/psinfo", pid);
 
   buffer = malloc (sizeof (psinfo_t));
   memset (buffer, 0, sizeof (psinfo_t));
