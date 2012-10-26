@@ -938,7 +938,11 @@ static int jsonrpc_read (void)
 	jsonrpc_update_cache();
 	submit_gauge(jsonrpc_cache_nb_entries(), "cache_size", "nb_used_cached");
 	for(i=0; i<NB_CACHE_ENTRY_MAX; i++) {
-		submit_gauge(uc_cache_copy[i].ready?uc_cache_copy[i].ref:0, "cache_entries", cache_plugin_instance[i]);
+		int n;
+		pthread_mutex_lock (&local_cache_lock);
+		n = uc_cache_copy[i].ready?uc_cache_copy[i].ref:0;
+		pthread_mutex_unlock (&local_cache_lock);
+		submit_gauge(n, "cache_entries", cache_plugin_instance[i]);
 	}
 
 	return (0);
