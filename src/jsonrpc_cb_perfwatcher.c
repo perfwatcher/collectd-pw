@@ -123,9 +123,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 		/* Parse the cache and update the servers_status array*/
 		for (i = 0; i < number; i++) {
 				size_t j;
-				cdtime_t t;
 
-				t = times[i];
 				for(j=0; names[i][j] && names[i][j] != '/'; j++);
 				if(j>= buffer_len) {
 						if(NULL == (buffer = realloc(buffer, j+1024))) {
