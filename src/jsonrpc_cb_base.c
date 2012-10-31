@@ -40,7 +40,7 @@ int jsonrpc_cb_listval (struct json_object *params, struct json_object *result, 
 		cdtime_t *times = NULL;
 		size_t number = 0;
 		int cache_id;
-		int i;
+		size_t i;
 
 		*errorstring = NULL;
 
@@ -236,7 +236,7 @@ int jsonrpc_cb_getval (struct json_object *params, struct json_object *result, c
 		if(json_object_is_type (params, json_type_array)) {
 				struct array_list *al;
 				int array_len;
-				int i;
+				size_t i;
 
 				al = json_object_get_array(params);
 				assert(NULL != al);
