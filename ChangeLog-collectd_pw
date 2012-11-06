@@ -1,3 +1,7 @@
+2012-11-06 Version 5.1.0-20121106
+* plugin notify_file no more puts all files in the same directory but in
+DIR/aa/bb/cc/<type>-aabbccdddd.gz where aabbccdddd is the timestamp.
+
 2012-10-31 version 5.1.0-20121031
 * bugfix in plugin/jsonrpc
 * revert plugin/write_mysql (no more applied)
