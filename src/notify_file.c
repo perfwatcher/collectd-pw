@@ -42,6 +42,10 @@ static int value_list_to_filename (char *buffer, int buffer_len,
 {
 	int offset = 0;
 	int status;
+	char timebuffer[25]; /* 2^64 is a 20-digits decimal number. So 25 should be enough */
+	time_t now;
+	struct tm stm;
+
 
 	if (datadir != NULL)
 	{
@@ -68,18 +72,6 @@ static int value_list_to_filename (char *buffer, int buffer_len,
 		return (-1);
 	offset += status;
 
-	if (strlen (n->type_instance) > 0)
-		status = ssnprintf (buffer + offset, buffer_len - offset,
-				"%s-%s", n->type, n->type_instance);
-	else
-		status = ssnprintf (buffer + offset, buffer_len - offset,
-				"%s", n->type);
-	if ((status < 1) || (status >= buffer_len - offset))
-		return (-1);
-	offset += status;
-
-	time_t now;
-	struct tm stm;
 
 	/* TODO: Find a way to minimize the calls to `localtime_r',
 	 * since they are pretty expensive.. */
@@ -89,10 +81,22 @@ static int value_list_to_filename (char *buffer, int buffer_len,
 		ERROR ("notify_file plugin: localtime_r failed");
 		return (1);
 	}
+	strftime(timebuffer, sizeof(timebuffer), "%s", &stm);
+	status = ssnprintf (buffer + offset, buffer_len - offset,
+					"%1$.2s/%1$.4s/%1$.6s/", timebuffer);
+	if ((status < 1) || (status >= buffer_len - offset))
+		return (-1);
+	offset += status;
 
-	strftime (buffer + offset, buffer_len - offset,
-			"-%s.gz", &stm);
-
+	if (strlen (n->type_instance) > 0)
+		status = ssnprintf (buffer + offset, buffer_len - offset,
+				"%s-%s-%s.gz", n->type, n->type_instance, timebuffer);
+	else
+		status = ssnprintf (buffer + offset, buffer_len - offset,
+				"%s-%s.gz", n->type, timebuffer);
+	if ((status < 1) || (status >= buffer_len - offset))
+		return (-1);
+	
 	return (0);
 } /* int value_list_to_filename */
 
