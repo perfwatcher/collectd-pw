@@ -277,6 +277,15 @@ endif
 collectd_DEPENDENCIES += curl.la
 endif
 
+if BUILD_PLUGIN_NOTIFY_FILE
+pkglib_LTLIBRARIES += notify_file.la
+notify_file_la_SOURCES = notify_file.c
+notify_file_la_LDFLAGS = -module -avoid-version
+collectd_LDADD += "-dlopen" notify_file.la
+collectd_DEPENDENCIES += notify_file.la
+notify_file_la_LIBADD = -lz
+endif
+
 if BUILD_PLUGIN_CURL_JSON
 pkglib_LTLIBRARIES += curl_json.la
 curl_json_la_SOURCES = curl_json.c
