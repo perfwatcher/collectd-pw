@@ -1,0 +1,101 @@
+absoluteg		value:GAUGE:0:U
+apache_bytesg		value:GAUGE:0:U
+apache_requestsg		value:GAUGE:0:U
+arc_countsg		demand_data:GAUGE:0:U, demand_metadata:GAUGE:0:U, prefetch_data:GAUGE:0:U, prefetch_metadata:GAUGE:0:U
+arc_l2_bytesg		read:GAUGE:0:U, write:GAUGE:0:U
+ath_statg		value:GAUGE:0:U
+cache_operationg		value:GAUGE:0:U
+cache_resultg		value:GAUGE:0:U
+cfp                     value:GAUGE:0:U
+cint                    value:GAUGE:0:U
+compressiong		uncompressed:GAUGE:0:U, compressed:GAUGE:0:U
+connectionsg		value:GAUGE:0:U
+contextswitchg		value:GAUGE:0:U
+context_switch_rateg     value:GAUGE:0:U
+context_switch_rate		value:DERIVE:0:U
+cpug			value:GAUGE:0:U
+deriveg			value:GAUGE:0:U
+disk_mergedg		read:GAUGE:0:U, write:GAUGE:0:U
+disk_octetsg		read:GAUGE:0:U, write:GAUGE:0:U
+disk_ops_complexg	value:GAUGE:0:U
+disk_opsg		read:GAUGE:0:U, write:GAUGE:0:U
+disk_timeg		read:GAUGE:0:U, write:GAUGE:0:U
+dns_answerg		value:GAUGE:0:U
+dns_notifyg		value:GAUGE:0:U
+dns_octetsg		queries:GAUGE:0:U, responses:GAUGE:0:U
+dns_opcodeg		value:GAUGE:0:U
+dns_qtypeg		value:GAUGE:0:U
+dns_queryg		value:GAUGE:0:U
+dns_questiong		value:GAUGE:0:U
+dns_rcodeg		value:GAUGE:0:U
+dns_rejectg		value:GAUGE:0:U
+dns_requestg		value:GAUGE:0:U
+dns_resolverg		value:GAUGE:0:U
+dns_responseg		value:GAUGE:0:U
+dns_transferg		value:GAUGE:0:U
+dns_updateg		value:GAUGE:0:U
+dns_zopsg		value:GAUGE:0:U
+fork_rateg		value:GAUGE:0:U
+fscache_statg		value:GAUGE:0:U
+grid        value:GAUGE:0:U
+http_request_methodsg	value:GAUGE:0:U
+http_requestsg		value:GAUGE:0:U
+http_response_codesg	value:GAUGE:0:U
+hyperthreading          value:GAUGE:0:1
+if_collisionsg		value:GAUGE:0:U
+if_droppedg		rx:GAUGE:0:U, tx:GAUGE:0:U
+if_errorsg		rx:GAUGE:0:U, tx:GAUGE:0:U
+if_multicastg		value:GAUGE:0:U
+if_octetsg		rx:GAUGE:0:U, tx:GAUGE:0:U
+if_packetsg		rx:GAUGE:0:U, tx:GAUGE:0:U
+if_rx_errorsg		value:GAUGE:0:U
+if_tx_errorsg		value:GAUGE:0:U
+invocationsg		value:GAUGE:0:U
+io_octetsg		rx:GAUGE:0:U, tx:GAUGE:0:U
+io_packetsg		rx:GAUGE:0:U, tx:GAUGE:0:U
+ipt_bytesg		value:GAUGE:0:U
+ipt_packetsg		value:GAUGE:0:U
+irqg			value:GAUGE:0:U
+memcached_commandg	value:GAUGE:0:U
+memcached_octetsg	rx:GAUGE:0:U, tx:GAUGE:0:U
+memcached_opsg		value:GAUGE:0:U
+mysql_commandsg		value:GAUGE:0:U
+mysql_handlerg		value:GAUGE:0:U
+mysql_locksg		value:GAUGE:0:U
+mysql_log_positiong	value:GAUGE:0:U
+mysql_octetsg		rx:GAUGE:0:U, tx:GAUGE:0:U
+nbcpu                   value:GAUGE:0:U
+nfs_procedureg		value:GAUGE:0:U
+nginx_requestsg		value:GAUGE:0:U
+node_octetsg		rx:GAUGE:0:U, tx:GAUGE:0:U
+node_statg		value:GAUGE:0:U
+operationsg		value:GAUGE:0:U
+panfs_procedure_ko      open:GAUGE:0:U, close:GAUGE:0:U, read:GAUGE:0:U, write:GAUGE:0:U, getattr:GAUGE:0:U, setattr:GAUGE:0:U, lookup:GAUGE:0:U, permission:GAUGE:0:U
+panfs_procedure_ok      open:GAUGE:0:U, close:GAUGE:0:U, read:GAUGE:0:U, write:GAUGE:0:U, getattr:GAUGE:0:U, setattr:GAUGE:0:U, lookup:GAUGE:0:U, permission:GAUGE:0:U
+panfs_procedure_ok_time open:GAUGE:0:U, close:GAUGE:0:U, read:GAUGE:0:U, write:GAUGE:0:U, getattr:GAUGE:0:U, setattr:GAUGE:0:U, lookup:GAUGE:0:U, permission:GAUGE:0:U
+pg_blksg			value:GAUGE:0:U
+pg_n_tup_cg		value:GAUGE:0:U
+pg_scang			value:GAUGE:0:U
+pg_xactg			value:GAUGE:0:U
+protocol_counterg	value:GAUGE:0:U
+ps_cputimeg		user:GAUGE:0:U, syst:GAUGE:0:U
+ps_disk_octetsg		read:GAUGE:0:U, write:GAUGE:0:U
+ps_disk_opsg		read:GAUGE:0:U, write:GAUGE:0:U
+ps_pagefaultsg		minflt:GAUGE:0:U, majflt:GAUGE:0:U
+serial_octetsg		rx:GAUGE:0:U, tx:GAUGE:0:U
+specs                   value:GAUGE:0:U
+swap_iog		value:GAUGE:0:U
+throughputbit           read:GAUGE:0:U, write:GAUGE:0:U
+total_bytesg		value:GAUGE:0:U
+total_connectionsg	value:GAUGE:0:U
+total_operationsg	value:GAUGE:0:U
+total_requestsg		value:GAUGE:0:U
+total_sessionsg		value:GAUGE:0:U
+total_threadsg		value:GAUGE:0:U
+total_time_in_msg	value:GAUGE:0:U
+total_valuesg		value:GAUGE:0:U
+virt_cpu_totalg		value:GAUGE:0:U
+virt_vcpug		value:GAUGE:0:U
+vmpage_actiong		value:GAUGE:0:U
+vmpage_faultsg		minflt:GAUGE:0:U, majflt:GAUGE:0:U
+vmpage_iog		in:GAUGE:0:U, out:GAUGE:0:U
