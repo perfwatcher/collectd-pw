@@ -1809,6 +1809,10 @@ Prefix all lines printed by the current time. Defaults to B<true>.
 When enabled, all lines are prefixed by the severity of the log message, for
 example "warning". Defaults to B<false>.
 
+=item B<LogNotification> B<true>|B<false>
+
+When disabled, C<logfile> do not log notification. Defaults to B<true>.
+
 =back
 
 B<Note>: There is no need to notify the daemon after moving or removing the
