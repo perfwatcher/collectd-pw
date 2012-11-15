@@ -200,7 +200,7 @@ static long pagesize_g;
 /* #endif KERNEL_LINUX */
 
 #elif HAVE_LIBKVM_GETPROCS && HAVE_STRUCT_KINFO_PROC_FREEBSD
-static int pagesize;
+/* no global variables */
 /* #endif HAVE_LIBKVM_GETPROCS && HAVE_STRUCT_KINFO_PROC_FREEBSD */
 
 #elif HAVE_PROCINFO_H
@@ -609,7 +609,7 @@ static int ps_init (void)
 /* #endif KERNEL_LINUX */
 
 #elif HAVE_LIBKVM_GETPROCS && HAVE_STRUCT_KINFO_PROC_FREEBSD
-	pagesize = getpagesize();
+/* no initialization */
 /* #endif HAVE_LIBKVM_GETPROCS && HAVE_STRUCT_KINFO_PROC_FREEBSD */
 
 #elif HAVE_PROCINFO_H
@@ -725,6 +725,46 @@ static void ps_submit_proc_list (procstat_t *ps)
 			ps->cpu_user_counter, ps->cpu_system_counter,
 			ps->io_rchar, ps->io_wchar, ps->io_syscr, ps->io_syscw);
 } /* void ps_submit_proc_list */
+
+#if KERNEL_LINUX || KERNEL_SOLARIS
+static void ps_submit_fork_rate (derive_t value)
+{
+	value_t values[1];
+	value_list_t vl = VALUE_LIST_INIT;
+
+	values[0].derive = value;
+
+	vl.values = values;
+	vl.values_len = 1;
+	sstrncpy(vl.host, hostname_g, sizeof (vl.host));
+	sstrncpy(vl.plugin, "processes", sizeof (vl.plugin));
+	sstrncpy(vl.plugin_instance, "", sizeof (vl.plugin_instance));
+	sstrncpy(vl.type, "fork_rate", sizeof (vl.type));
+	sstrncpy(vl.type_instance, "", sizeof (vl.type_instance));
+
+	plugin_dispatch_values(&vl);
+}
+#endif /* KERNEL_LINUX || KERNEL_SOLARIS*/
+
+#if KERNEL_LINUX
+static void ps_submit_ctxsw_rate (derive_t value)
+{
+	value_t values[1];
+	value_list_t vl = VALUE_LIST_INIT;
+
+	values[0].derive = value;
+
+	vl.values = values;
+	vl.values_len = 1;
+	sstrncpy(vl.host, hostname_g, sizeof (vl.host));
+	sstrncpy(vl.plugin, "processes", sizeof (vl.plugin));
+	sstrncpy(vl.plugin_instance, "", sizeof (vl.plugin_instance));
+	sstrncpy(vl.type, "context_switch_rate", sizeof (vl.type));
+	sstrncpy(vl.type_instance, "", sizeof (vl.type_instance));
+
+	plugin_dispatch_values(&vl);
+}
+#endif /* KERNEL_LINUX */
 
 /* ------- additional functions for KERNEL_LINUX/HAVE_THREAD_INFO ------- */
 #if KERNEL_LINUX
@@ -1162,25 +1202,52 @@ static unsigned long read_fork_rate ()
 	return result;
 }
 
-static void ps_submit_fork_rate (unsigned long value)
+static int read_ctxsw_rate ()
 {
-	value_t values[1];
-	value_list_t vl = VALUE_LIST_INIT;
+	FILE *proc_stat;
+	char buffer[1024];
+	value_t value;
+	_Bool value_valid = 0;
 
-	values[0].derive = (derive_t) value;
+	proc_stat = fopen ("/proc/stat", "r");
+	if (proc_stat == NULL)
+	{
+		char errbuf[1024];
+		ERROR ("processes plugin: fopen (/proc/stat) failed: %s",
+				sstrerror (errno, errbuf, sizeof (errbuf)));
+		return (-1);
+	}
 
-	vl.values = values;
-	vl.values_len = 1;
-	sstrncpy (vl.host, hostname_g, sizeof (vl.host));
-	sstrncpy (vl.plugin, "processes", sizeof (vl.plugin));
-	sstrncpy (vl.plugin_instance, "", sizeof (vl.plugin_instance));
-	sstrncpy (vl.type, "fork_rate", sizeof (vl.type));
-	sstrncpy (vl.type_instance, "", sizeof (vl.type_instance));
+	while (fgets (buffer, sizeof (buffer), proc_stat) != NULL)
+	{
+		int status;
+		char *fields[3];
+		int fields_num;
 
-	plugin_dispatch_values (&vl);
+		fields_num = strsplit (buffer, fields,
+				STATIC_ARRAY_SIZE (fields));
+		if (fields_num != 2)
+			continue;
+
+		if (strcmp ("ctxt", fields[0]) != 0)
+			continue;
+
+		status = parse_value (fields[1], &value, DS_TYPE_DERIVE);
+		if (status == 0)
+			value_valid = 1;
+
+		break;
+	}
+	fclose(proc_stat);
+
+	if (!value_valid)
+		return (-1);
+
+	ps_submit_fork_rate (value.derive);
+	ps_submit_ctxsw_rate (value.derive);
+	return (0);
 }
-
-#endif /* KERNEL_LINUX */
+#endif /*KERNEL_LINUX */
 
 #if HAVE_THREAD_INFO
 static int mach_get_task_name (task_t t, int *pid, char *name, size_t name_max_len)
@@ -1506,8 +1573,6 @@ static int ps_read (void)
 	procstat_entry_t pse;
 	char       state;
 
-	unsigned long fork_rate;
-
 	procstat_t *ps_ptr;
 
 	running = sleeping = zombies = stopped = paging = blocked = 0;
@@ -1589,9 +1654,8 @@ static int ps_read (void)
 	for (ps_ptr = list_head_g; ps_ptr != NULL; ps_ptr = ps_ptr->next)
 		ps_submit_proc_list (ps_ptr);
 
-	fork_rate = read_fork_rate();
-	if (fork_rate != ULONG_MAX)
-		ps_submit_fork_rate(fork_rate);
+	read_fork_rate();
+	read_ctxsw_rate();
 /* #endif KERNEL_LINUX */
 
 #elif HAVE_LIBKVM_GETPROCS && HAVE_STRUCT_KINFO_PROC_FREEBSD
@@ -1605,8 +1669,10 @@ static int ps_read (void)
 
 	kvm_t *kd;
 	char errbuf[1024];
+	char cmdline[ARG_MAX];
+	char *cmdline_ptr;
   	struct kinfo_proc *procs;          /* array of processes */
-	struct kinfo_proc *proc_ptr = NULL;
+  	char **argv;
   	int count;                         /* returns number of processes */
 	int i;
 
@@ -1637,37 +1703,33 @@ static int ps_read (void)
 	/* Iterate through the processes in kinfo_proc */
 	for (i = 0; i < count; i++)
 	{
-		/* Create only one process list entry per _process_, i.e.
-		 * filter out threads (duplicate PID entries). */
-		if ((proc_ptr == NULL) || (proc_ptr->ki_pid != procs[i].ki_pid))
-		{
-			char cmdline[ARG_MAX] = "";
-			_Bool have_cmdline = 0;
+		/* retrieve the arguments */
+		cmdline[0] = 0;
+		cmdline_ptr = NULL;
 
-			proc_ptr = &(procs[i]);
-			/* Don't probe system processes and processes without arguments */
-			if (((procs[i].ki_flag & P_SYSTEM) == 0)
-					&& (procs[i].ki_args != NULL))
+		argv = kvm_getargv (kd, (const struct kinfo_proc *) &(procs[i]), 0);
+		if (argv != NULL)
 			{
-				char **argv;
-				int argc;
 				int status;
+			int argc;
 
-				/* retrieve the arguments */
-				argv = kvm_getargv (kd, proc_ptr, /* nchr = */ 0);
 				argc = 0;
-				if ((argv != NULL) && (argv[0] != NULL))
-				{
 					while (argv[argc] != NULL)
 						argc++;
 
-					status = strjoin (cmdline, sizeof (cmdline), argv, argc, " ");
+			status = strjoin (cmdline, sizeof (cmdline),
+					argv, argc, " ");
+
 					if (status < 0)
-						WARNING ("processes plugin: Command line did not fit into buffer.");
+			{
+				WARNING ("processes plugin: Command line did "
+						"not fit into buffer.");
+			}
 					else
-						have_cmdline = 1;
+			{
+				cmdline_ptr = &cmdline[0];
+			}
 				}
-			} /* if (process has argument list) */
 
 			pse.id       = procs[i].ki_pid;
 			pse.age      = 0;
@@ -1676,41 +1738,29 @@ static int ps_read (void)
 			pse.num_lwp  = procs[i].ki_numthreads;
 
 			pse.vmem_size = procs[i].ki_size;
-			pse.vmem_rss = procs[i].ki_rssize * pagesize;
-			pse.vmem_data = procs[i].ki_dsize * pagesize;
-			pse.vmem_code = procs[i].ki_tsize * pagesize;
-			pse.stack_size = procs[i].ki_ssize * pagesize;
+		pse.vmem_rss = procs[i].ki_rssize * getpagesize();
+		pse.vmem_data = procs[i].ki_dsize * getpagesize();
+		pse.vmem_code = procs[i].ki_tsize * getpagesize();
+		pse.stack_size = procs[i].ki_ssize * getpagesize();
 			pse.vmem_minflt = 0;
 			pse.vmem_minflt_counter = procs[i].ki_rusage.ru_minflt;
 			pse.vmem_majflt = 0;
 			pse.vmem_majflt_counter = procs[i].ki_rusage.ru_majflt;
 
 			pse.cpu_user = 0;
+		pse.cpu_user_counter = procs[i].ki_rusage.ru_utime.tv_sec
+			* 1000
+			+ procs[i].ki_rusage.ru_utime.tv_usec;
 			pse.cpu_system = 0;
-			pse.cpu_user_counter = 0;
-			pse.cpu_system_counter = 0;
-			/*
-			 * The u-area might be swapped out, and we can't get
-			 * at it because we have a crashdump and no swap.
-			 * If it's here fill in these fields, otherwise, just
-			 * leave them 0.
-			 */
-			if (procs[i].ki_flag & P_INMEM)
-			{
-				pse.cpu_user_counter = procs[i].ki_rusage.ru_utime.tv_usec
-				       	+ (1000000lu * procs[i].ki_rusage.ru_utime.tv_sec);
-				pse.cpu_system_counter = procs[i].ki_rusage.ru_stime.tv_usec
-					+ (1000000lu * procs[i].ki_rusage.ru_stime.tv_sec);
-			}
+		pse.cpu_system_counter = procs[i].ki_rusage.ru_stime.tv_sec
+			* 1000
+			+ procs[i].ki_rusage.ru_stime.tv_usec;
 
-			/* no I/O data */
+		/* no io data */
 			pse.io_rchar = -1;
 			pse.io_wchar = -1;
 			pse.io_syscr = -1;
 			pse.io_syscw = -1;
-
-			ps_list_add (procs[i].ki_comm, have_cmdline ? cmdline : NULL, &pse);
-		} /* if ((proc_ptr == NULL) || (proc_ptr->ki_pid != procs[i].ki_pid)) */
 
 		switch (procs[i].ki_stat)
 		{
@@ -1722,6 +1772,8 @@ static int ps_read (void)
 			case SLOCK:	blocked++;	break;
 			case SZOMB:	zombies++;	break;
 		}
+
+		ps_list_add (procs[i].ki_comm, cmdline_ptr, &pse);
 	}
 
 	kvm_close(kd);
