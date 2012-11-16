@@ -4880,6 +4880,7 @@ then
 	plugin_zfs_arc="yes"
 	plugin_vmem="yes"
 	plugin_protocols="yes"
+	plugin_processes="yes"
 fi
 
 if test "x$with_devinfo$with_kstat" = "xyesyes"
