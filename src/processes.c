@@ -216,8 +216,9 @@ int getargs (struct procentry64 *processBuffer, int bufferLen, char *argsBuffer,
 #endif /* HAVE_PROCINFO_H */
 
 /* put name of process from config to list_head_g tree
-   list_head_g is a list of 'procstat_t' structs with
-   processes names we want to watch */
+ * list_head_g is a list of 'procstat_t' structs with
+ * processes names we want to watch
+ */
 static void ps_list_register (const char *name, const char *regexp)
 {
 	procstat_t *new;
@@ -712,7 +713,7 @@ static void ps_submit_proc_list (procstat_t *ps)
 	}
 
 	DEBUG ("name = %s; num_proc = %lu; num_lwp = %lu; "
-                        "vmem_size = %lu; vmem_rss = %lu; vmem_data = %lu; "
+			"vmem_size = %lu; vmem_rss = %lu; vmem_data = %lu; "
 			"vmem_code = %lu; "
 			"vmem_minflt_counter = %"PRIi64"; vmem_majflt_counter = %"PRIi64"; "
 			"cpu_user_counter = %"PRIi64"; cpu_system_counter = %"PRIi64"; "
@@ -820,7 +821,7 @@ static procstat_t *ps_read_vmem (int pid, procstat_t *ps)
 			continue;
 
 		numfields = strsplit (buffer, fields,
-                                      STATIC_ARRAY_SIZE (fields));
+						STATIC_ARRAY_SIZE (fields));
 
 		if (numfields < 2)
 			continue;
@@ -1703,33 +1704,33 @@ static int ps_read (void)
 	/* Iterate through the processes in kinfo_proc */
 	for (i = 0; i < count; i++)
 	{
-		/* retrieve the arguments */
-		cmdline[0] = 0;
-		cmdline_ptr = NULL;
+			/* retrieve the arguments */
+			cmdline[0] = 0;
+			cmdline_ptr = NULL;
 
-		argv = kvm_getargv (kd, (const struct kinfo_proc *) &(procs[i]), 0);
-		if (argv != NULL)
+			argv = kvm_getargv (kd, (const struct kinfo_proc *) &(procs[i]), 0);
+			if (argv != NULL)
 			{
-				int status;
-			int argc;
+					int status;
+					int argc;
 
-				argc = 0;
+					argc = 0;
 					while (argv[argc] != NULL)
-						argc++;
+							argc++;
 
-			status = strjoin (cmdline, sizeof (cmdline),
-					argv, argc, " ");
+					status = strjoin (cmdline, sizeof (cmdline),
+									argv, argc, " ");
 
 					if (status < 0)
-			{
-				WARNING ("processes plugin: Command line did "
-						"not fit into buffer.");
-			}
+					{
+							WARNING ("processes plugin: Command line did "
+											"not fit into buffer.");
+					}
 					else
-			{
-				cmdline_ptr = &cmdline[0];
+					{
+							cmdline_ptr = &cmdline[0];
+					}
 			}
-				}
 
 			pse.id       = procs[i].ki_pid;
 			pse.age      = 0;
@@ -1738,42 +1739,42 @@ static int ps_read (void)
 			pse.num_lwp  = procs[i].ki_numthreads;
 
 			pse.vmem_size = procs[i].ki_size;
-		pse.vmem_rss = procs[i].ki_rssize * getpagesize();
-		pse.vmem_data = procs[i].ki_dsize * getpagesize();
-		pse.vmem_code = procs[i].ki_tsize * getpagesize();
-		pse.stack_size = procs[i].ki_ssize * getpagesize();
+			pse.vmem_rss = procs[i].ki_rssize * getpagesize();
+			pse.vmem_data = procs[i].ki_dsize * getpagesize();
+			pse.vmem_code = procs[i].ki_tsize * getpagesize();
+			pse.stack_size = procs[i].ki_ssize * getpagesize();
 			pse.vmem_minflt = 0;
 			pse.vmem_minflt_counter = procs[i].ki_rusage.ru_minflt;
 			pse.vmem_majflt = 0;
 			pse.vmem_majflt_counter = procs[i].ki_rusage.ru_majflt;
 
 			pse.cpu_user = 0;
-		pse.cpu_user_counter = procs[i].ki_rusage.ru_utime.tv_sec
-			* 1000
-			+ procs[i].ki_rusage.ru_utime.tv_usec;
+			pse.cpu_user_counter = procs[i].ki_rusage.ru_utime.tv_sec
+					* 1000
+					+ procs[i].ki_rusage.ru_utime.tv_usec;
 			pse.cpu_system = 0;
-		pse.cpu_system_counter = procs[i].ki_rusage.ru_stime.tv_sec
-			* 1000
-			+ procs[i].ki_rusage.ru_stime.tv_usec;
+			pse.cpu_system_counter = procs[i].ki_rusage.ru_stime.tv_sec
+					* 1000
+					+ procs[i].ki_rusage.ru_stime.tv_usec;
 
-		/* no io data */
+			/* no io data */
 			pse.io_rchar = -1;
 			pse.io_wchar = -1;
 			pse.io_syscr = -1;
 			pse.io_syscw = -1;
 
-		switch (procs[i].ki_stat)
-		{
-			case SSTOP: 	stopped++;	break;
-			case SSLEEP:	sleeping++;	break;
-			case SRUN:	running++;	break;
-			case SIDL:	idle++;		break;
-			case SWAIT:	wait++;		break;
-			case SLOCK:	blocked++;	break;
-			case SZOMB:	zombies++;	break;
-		}
+			switch (procs[i].ki_stat)
+			{
+					case SSTOP: 	stopped++;	break;
+					case SSLEEP:	sleeping++;	break;
+					case SRUN:	running++;	break;
+					case SIDL:	idle++;		break;
+					case SWAIT:	wait++;		break;
+					case SLOCK:	blocked++;	break;
+					case SZOMB:	zombies++;	break;
+			}
 
-		ps_list_add (procs[i].ki_comm, cmdline_ptr, &pse);
+			ps_list_add (procs[i].ki_comm, cmdline_ptr, &pse);
 	}
 
 	kvm_close(kd);
@@ -1830,7 +1831,7 @@ static int ps_read (void)
 				if (procentry[i].pi_pid == 0)
 					cmdline = "swapper";
 				cargs = cmdline;
- 			}
+			}
 			else
 			{
 				if (getargs(&procentry[i], sizeof(struct procentry64), arglist, MAXARGLN) >= 0)
