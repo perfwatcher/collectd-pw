@@ -1,1 +1,26 @@
+2012-11-19 version 5.1.1.20121119
+
+Include new patchs :
+- patch-cpu
+- patch-protocols_solaris
+
+Updates on patchs :
+- patch-process
+- patch-fix_make_distcheck
+
 2012-11-15 version 5.1.1
+
+Include patchs :
+- patch-fix_for_large_MaxPacketSize
+- patch-fix_make_distcheck
+- patch-logfile
+- patch-nfs_stats_with_network_plugin
+- patch-notification_forwarding
+- patch-perfwatcher_addons
+- patch-process
+- patch-rrdtool_create_only
+- plugin-basic_aggregator
+- plugin-jsonrpc
+- plugin-notify_file
+- plugin-sysconfig
+- plugin-top
