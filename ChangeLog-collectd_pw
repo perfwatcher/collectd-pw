@@ -1,3 +1,10 @@
+2012-11-21 version 5.1.1.20121121
+
+Updates on patchs :
+- basic_aggregator : fixed a bug "Assertion 't != ((void *)0)' failed" and
+other minor bugs.
+- process : bugfix and backport (from 5.2.0 / master)
+
 2012-11-19 version 5.1.1.20121119
 
 Include new patchs :
