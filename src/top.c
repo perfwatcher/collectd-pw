@@ -288,24 +288,43 @@ static int top_read(void)
         while (n--) {
             if (atoi (namelist[n]->d_name)) {
                 stat_t *stat;
+                status_t *status;
+                char buf[256];
+                struct passwd *pwd;                
+                struct group *grp;                
+
                 stat = malloc(sizeof(stat_t));
+				if(NULL == stat) {
+					int i;
+					ERROR ("plugin top : Not enough memory (%s:%d)", __FILE__, __LINE__);
+					for(i=0; i<=n; i++) free(namelist[n]);
+					free(namelist);
+					free(bufferout);
+					return(1);
+				}
                 //if (getStat (atoi (namelist[n]->d_name), stat) == 0 || stat->ppid == 2 || stat->ppid == 0) {                
                 if (getStat (atoi (namelist[n]->d_name), stat) == 0) {
                     free(namelist[n]);
                     free(stat);
                     continue;
                 }
-                status_t *status;
                 status = malloc(sizeof(status_t));                
+				if(NULL == stat) {
+					int i;
+					ERROR ("plugin top : Not enough memory (%s:%d)", __FILE__, __LINE__);
+					for(i=0; i<=n; i++) free(namelist[n]);
+                    free(stat);
+					free(namelist);
+					free(bufferout);
+					return(1);
+				}
                 if (getStatus (atoi (namelist[n]->d_name), status) == 0) {
                     free(namelist[n]);
                     free(stat);
                     free(status);
+					continue;
                 }                
-                char buf[256];
-                struct passwd *pwd;                
                 pwd = getpwuid(status->Uid[1]);
-                struct group *grp;                
                 grp = getgrgid(status->Gid[1]);
 #if KERNEL_LINUX              
                 snprintf(buf, sizeof(buf), "%d %d %lu %s %lu %s %ld %ld %ld %s\n", 
