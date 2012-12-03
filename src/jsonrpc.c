@@ -933,6 +933,8 @@ static int submit_derive (unsigned int n, const char *type, const  char *type_in
 static int jsonrpc_read (void)
 {
 	static int first_time = 1;
+	unsigned int nb_entries_in_last_cache = 0;
+	time_t update_time = 0;
 	int i;
 	if(first_time) {
 		INFO(OUTPUT_PREFIX_JSONRPC "Compilation time : %s %s", __DATE__, __TIME__);
@@ -949,9 +951,14 @@ static int jsonrpc_read (void)
 		int n;
 		pthread_mutex_lock (&local_cache_lock);
 		n = uc_cache_copy[i].ready?uc_cache_copy[i].ref:0;
+		if(uc_cache_copy[i].ready && (uc_cache_copy[i].update_time  > update_time)) {
+			update_time = uc_cache_copy[i].update_time;
+			nb_entries_in_last_cache = uc_cache_copy[i].number;
+		}
 		pthread_mutex_unlock (&local_cache_lock);
 		submit_gauge(n, "cache_entries", cache_plugin_instance[i]);
 	}
+	submit_gauge(nb_entries_in_last_cache, "nb_values", "");
 
 	return (0);
 } /* int jsonrpc_read */
