@@ -311,8 +311,7 @@ int jsonrpc_update_cache() {
 	now = time(NULL);
 	if(-1 == last_cache_entry) { 
 		update_needed = 1;
-	}
-	else if((uc_cache_copy[last_cache_entry].update_time + jsonrpc_cache_expiration_time) < now) {
+	} else if((uc_cache_copy[last_cache_entry].update_time + jsonrpc_cache_expiration_time) < now) {
 		update_needed = 1;
 	}
 	if(0 == update_needed) {
