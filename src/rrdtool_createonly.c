@@ -31,6 +31,10 @@
 #include "utils_avltree.h"
 #include "utils_rrdcreate.h"
 
+#if HAVE_PTHREAD_H
+# include <pthread.h>
+#endif
+
 #include <rrd.h>
 
 /*
@@ -104,6 +108,8 @@ static c_avl_tree_t *stat_cache_tree = NULL;
 static cdtime_t    cache_flush_last = 0;
 
 static int do_shutdown = 0;
+
+static pthread_mutex_t cache_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int value_list_to_string (char *buffer, int buffer_len,
 		const data_set_t *ds, const value_list_t *vl)
@@ -225,6 +231,9 @@ static stat_cache_t *new_cache_entry(const char*filename) {
 }
 
 static void register_cache_entry(stat_cache_t* sc) {
+/* Warning : when this function is called, the mutex cache_lock should be locked.
+ * be sure that it is locled before calling this function, and do not lock it inside.
+ */
 	int status;
 	status = c_avl_insert(stat_cache_tree, sc->filename, sc);
 	assert(status == 0);
@@ -240,6 +249,9 @@ static void register_cache_entry(stat_cache_t* sc) {
 }
 
 static void cache_stack_move_to_tail(stat_cache_t* sc) {
+/* Warning : when this function is called, the mutex cache_lock should be locked.
+ * be sure that it is locled before calling this function, and do not lock it inside.
+ */
 	if(NULL == sc->next) return; /* Already at tail */
 
 	if(sc->prev) {
@@ -260,6 +272,7 @@ static stat_cache_t* stat_file_with_cache(const char *filename) {
 		cdtime_t now;
 		stat_cache_t *sc = NULL;
 
+		pthread_mutex_lock (&cache_lock);
 		if(NULL == stat_cache_tree) {
 				stat_cache_tree = c_avl_create ((int (*) (const void *, const void *)) strcmp);
 		}
@@ -302,16 +315,22 @@ static stat_cache_t* stat_file_with_cache(const char *filename) {
 				sc->last_update = now;
 				cache_stack_move_to_tail(sc);
 		}
+		pthread_mutex_unlock (&cache_lock);
 		return(sc);
 } /* int stat_file_with_cache */
 
 void stat_cache_flush() {
 		cdtime_t now;
 		now = cdtime();
-		while(stat_cache_stack_head && (stat_cache_stack_head->last_update + cache_flush_timeout < now)) {
+		while(12345) {
 				stat_cache_t *sc;
 				void *key;
 				void *value;
+				pthread_mutex_lock (&cache_lock);
+				if (! (stat_cache_stack_head && (stat_cache_stack_head->last_update + cache_flush_timeout < now))) {
+						pthread_mutex_unlock (&cache_lock);
+						break;
+				}
 
 				if(0 != c_avl_remove(stat_cache_tree, stat_cache_stack_head->filename, &key, &value)) {
 						ERROR ("Could not find a cache entry to remove (filename '%s')", stat_cache_stack_head->filename);
@@ -325,6 +344,7 @@ void stat_cache_flush() {
 						stat_cache_stack_head = stat_cache_stack_head->next;
 						stat_cache_stack_head->prev = NULL;
 				}
+				pthread_mutex_unlock (&cache_lock);
 				free(sc->filename);
 				free(sc);
 		}
@@ -333,6 +353,7 @@ void stat_cache_flush() {
 void stat_cache_free() {
 		stat_cache_t *sc;
 
+		pthread_mutex_lock (&cache_lock);
 		while(NULL != (sc = stat_cache_stack_head)) {
 			stat_cache_stack_head = sc->next;
 			free(sc->filename);
@@ -342,6 +363,7 @@ void stat_cache_free() {
 		stat_cache_stack_tail = NULL;
 		c_avl_destroy(stat_cache_tree);
 		stat_cache_tree = NULL;
+		pthread_mutex_unlock (&cache_lock);
 }
 
 static int rrdco_write (const data_set_t *ds, const value_list_t *vl,
@@ -412,7 +434,7 @@ static int rrdco_config (const char *key, const char *value)
 					"be greater than 0.\n");
 			return (1);
 		}
-		cache_flush_timeout = tmp;
+		cache_flush_timeout = DOUBLE_TO_CDTIME_T (tmp);
 	}
 	else if (strcasecmp ("DataDir", key) == 0)
 	{
