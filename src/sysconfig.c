@@ -1,7 +1,9 @@
 #include "collectd.h"
 #include "plugin.h"
 #include "common.h"
+#include <time.h>
 
+static time_t sysconfig_last_run = 0;
 
 static void get_dmidecode (char *message) {
     char buf[80]; 
@@ -16,6 +18,13 @@ static void get_dmidecode (char *message) {
         }
         fclose(fp);
     }
+}
+
+static void get_collectd_version (char *message, size_t maxlen) {
+	snprintf(message, maxlen, 
+		"Package=%s\nVersion=%s\nComplation date=%s %s\n",
+		PACKAGE,     VERSION,    __DATE__, __TIME__
+		);
 }
 
 static void get_collectd_package_version (char *message) {
@@ -55,48 +64,48 @@ static void get_distrib (char *message) {
         }
     }
 }
-static int sysconfig_read (void) {
+
+static void sysconfig_notify(notification_t *notif, const char *type, const char *message) {
+        memset (notif, '\0', sizeof (*notif));
+        notif->severity = NOTIF_OKAY;
+        notif->time = cdtime ();
+        sstrncpy(notif->host, hostname_g, sizeof(notif->host));
+        sstrncpy(notif->plugin, "sysconfig", sizeof(notif->plugin));
+        sstrncpy(notif->type, type, sizeof(notif->type));
+        sstrncpy(notif->message, message, sizeof(notif->message));
+        plugin_dispatch_notification(notif);
+}
     
+static void sysconfig_collectd_data_and_send(void) {
     char   message[NOTIF_MAX_MSG_LEN];
     notification_t notif;
 
     message[0] = '\0';
     get_dmidecode (message);
-    if (strlen(message) > 0) {
-        memset (&notif, '\0', sizeof (notif));
-        notif.severity = NOTIF_OKAY;
-        notif.time = cdtime ();
-        sstrncpy(notif.host, hostname_g, sizeof(notif.host));
-        sstrncpy(notif.plugin, "sysconfig", sizeof(notif.plugin));
-        sstrncpy(notif.type, "dmidecode", sizeof(notif.type));
-        sstrncpy(notif.message, message, sizeof(notif.message));
-        plugin_dispatch_notification(&notif);
-    }
+    if (strlen(message) > 0) { sysconfig_notify(&notif, "dmidecode", message); }
+
+    message[0] = '\0';
+    get_collectd_version (message, sizeof(message));
+    if (strlen(message) > 0) { sysconfig_notify(&notif, "collectd_version_info", message); }
+
     message[0] = '\0';
     get_collectd_package_version (message);
-    if (strlen(message) > 0) {
-        memset (&notif, '\0', sizeof (notif));
-        notif.severity = NOTIF_OKAY;
-        notif.time = cdtime ();
-        sstrncpy(notif.host, hostname_g, sizeof(notif.host));
-        sstrncpy(notif.plugin, "sysconfig", sizeof(notif.plugin));
-        sstrncpy(notif.type, "collectd_package_version", sizeof(notif.type));
-        sstrncpy(notif.message, message, sizeof(notif.message));
-        plugin_dispatch_notification(&notif);
-    }
+    if (strlen(message) > 0) { sysconfig_notify(&notif, "collectd_package_version", message); }
+
     message[0] = '\0';
     get_distrib (message);
-    if (strlen(message) > 0) {
-        memset (&notif, '\0', sizeof (notif));
-        notif.severity = NOTIF_OKAY;
-        notif.time = cdtime ();
-        sstrncpy(notif.host, hostname_g, sizeof(notif.host));
-        sstrncpy(notif.plugin, "sysconfig", sizeof(notif.plugin));
-        sstrncpy(notif.type, "distrib", sizeof(notif.type));
-        sstrncpy(notif.message, message, sizeof(notif.message));
-        plugin_dispatch_notification(&notif);
-    }
-    plugin_unregister_read ("sysconfig");
+    if (strlen(message) > 0) { sysconfig_notify(&notif, "distrib", message); }
+}
+
+static int sysconfig_read (void) {
+	time_t now;
+
+	now = time(NULL);
+	/* Run every 24 hours */
+	if(now-sysconfig_last_run > 86400) {
+			sysconfig_collectd_data_and_send();
+			sysconfig_last_run = now;
+	}
     return 0;
 }
 
