@@ -1,3 +1,17 @@
+2013-01-17 version 5.2.0.20130117
+
+Patch patch-rrdtool_create_only was removed.
+The plugin rrdtool has now back its original behaviour.
+
+Instead, there is a new plugin :
+- plugin-rrdtool_createonly
+
+Updates on :
+- plugin-sysconfig
+
+New patch
+- patch-fix_interfaces_solaris
+
 2012-12-05 version 5.2.0.20121205
 
 Include patchs :
