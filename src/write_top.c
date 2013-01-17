@@ -195,6 +195,7 @@ static int wt_chunk_write_to_disk(wt_chunk_t *ch) { /* {{{ */
         int status=0;
         char filename[512];
         char timebuffer[64];
+        char write_top_version[] = "Version 1.0\n";
         size_t timebuffer_len;
         gzFile *gfd;
         time_t tm;
@@ -224,6 +225,7 @@ static int wt_chunk_write_to_disk(wt_chunk_t *ch) { /* {{{ */
 				sstrerror (errno, errbuf, sizeof (errbuf)));
 		return (-1);
 	}
+	gzwrite(gfd, write_top_version, strlen(write_top_version));
 	gzwrite(gfd, timebuffer, timebuffer_len);
 	gzwrite(gfd, ch->data, ch->len);
 	gzclose (gfd);
