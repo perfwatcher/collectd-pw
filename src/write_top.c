@@ -119,7 +119,7 @@ static wt_chunk_t *wt_chunk_new(char *hostname) { /* {{{ */
                 }
         }
         ch->hostname = hostname;
-        ch->first_tm = 0;
+        ch->first_tm = time(NULL);;
         ch->last_tm = 0;
         ch->flush = 0;
         ch->prev = NULL;
@@ -131,11 +131,41 @@ static wt_chunk_t *wt_chunk_new(char *hostname) { /* {{{ */
 
 static void wt_chunk_mark_as_free(wt_chunk_t *ch) { /* {{{ */
         pthread_mutex_lock(&wt_chunk_free_lock);
+        ch->hostname = NULL; /* This is useless, but be sure that we do nothing with the old (still used) value */
         ch->next = wt_chunks_free;
+        ch->first_tm = time(NULL);
         wt_chunks_free = ch;
         wt_chunk_free_nb += 1;
         pthread_mutex_unlock(&wt_chunk_free_lock);
 } /* }}} wt_chunk_mark_as_free */
+
+static void wt_chunk_purge_useless_free_chunks(void) { /* {{{ */
+        wt_chunk_t *ch;
+        wt_chunk_t *ch_prev;
+        time_t tm;
+
+        pthread_mutex_lock(&wt_chunk_free_lock);
+        if(NULL == wt_chunks_free) {
+                pthread_mutex_unlock(&wt_chunk_free_lock);
+                return;
+        }
+        ch_prev = wt_chunks_free;
+        ch = ch_prev->next;
+        tm = time(NULL);
+        while(ch) {
+                /* purge free and unused chunks */
+                if(ch->first_tm - flushwhenolderthan < tm) {
+                        ch_prev->next = ch->next;
+                        free(ch->data);
+                        free(ch);
+                        wt_chunk_free_nb -= 1;
+                        ch = ch_prev;
+                }
+                ch = ch->next;
+        }
+
+        pthread_mutex_unlock(&wt_chunk_free_lock);
+} /* }}} wt_chunk_purge_useless_free_chunks */
 
 static int wt_set_filename (char *buffer, int buffer_len, const wt_chunk_t * ch) /* {{{ */
 {
@@ -257,7 +287,7 @@ static wt_chunk_t * wt_chunk_find_host_or_new(const notification_t *n) { /* {{{ 
         }
 
         return(ch);
-} /* }}} wt_chunk_write_to_disk */
+} /* }}} wt_chunk_find_host_or_new */
 
 static void wt_chunk_mark_for_flush(wt_chunk_t *ch) { /* {{{ */
 
@@ -448,8 +478,8 @@ static void wt_chunks_mark_all_for_flush (short flush_all) /* {{{ */
                 time_t tm=0;
 
                 if(! flush_all) {
-                tm = time(NULL);
-                tm -= flushwhenolderthan;
+                        tm = time(NULL);
+                        tm -= flushwhenolderthan;
                 }
 
                 iter = c_avl_get_iterator (wt_chunks_tree);
@@ -484,16 +514,69 @@ static void wt_chunks_release_all_free_chunks(void) /* {{{ */
 
 } /* }}} wt_chunks_release_all_free_chunks */
 
+static void wt_clean_tree(void) /* {{{ */
+{
+        c_avl_iterator_t *iter;
+        char *key;
+        wt_chunk_t *chunks_to_purge=NULL;
+        wt_chunk_t *ch;
+        time_t tm=0;
+
+        tm = time(NULL);
+        tm -= flushwhenolderthan;
+
+        pthread_mutex_lock(&wt_chunk_tree_lock);
+        iter = c_avl_get_iterator (wt_chunks_tree);
+        while (c_avl_iterator_next (iter, (void *) &key, (void *) &ch) == 0)
+        {
+                if(ch->len == 0 && (ch->first_tm < tm)) {
+                        ch->next = chunks_to_purge;
+                        chunks_to_purge = ch;
+                }
+        } /* while (c_avl_iterator_next) */
+        c_avl_iterator_destroy (iter);
+
+        for(ch = chunks_to_purge; ch; ch = ch->next) {
+                void *rkey;
+                void *rvalue;
+                c_avl_remove(wt_chunks_tree, ch->hostname, &rkey, &rvalue);
+                /* Because of locks, we prefer to free the chunk instead of
+                 * adding it to the list of free chunks.
+                 * This should not happen so often, so it should not have a
+                 * significative impact.
+                 */
+                free(ch->hostname);
+                free(ch->data);
+                free(ch);
+        }
+
+        pthread_mutex_unlock(&wt_chunk_tree_lock);
+
+} /* }}} wt_clean_tree */
+
 static void *wt_thread_check_old_chunks (void __attribute__((unused)) *data) /* {{{ */
 {
+        time_t tm_last_clean = time(NULL);
         while(1) {
                 struct timespec ts,rts;
+                time_t tm;
 
                 wt_chunks_mark_all_for_flush(0);
 
                 submit_gauge(wt_chunk_free_nb, "nb_values", "nb_free_chunks");
                 submit_gauge(wt_chunk_flush_nb, "nb_values", "nb_tops_to_flush");
                 submit_gauge(c_avl_size(wt_chunks_tree), "nb_values", "nb_hosts");
+
+                tm = time(NULL);
+                if(tm - flushwhenolderthan > tm_last_clean) {
+                        /* remove hosts that have not be updated for a while */
+                        wt_clean_tree();
+                        /* Remove free chunks that have not be reallocaed for
+                         * a while */
+                        wt_chunk_purge_useless_free_chunks();
+
+                        tm_last_clean = time(NULL);
+                }
 
                 if(0 != do_shutdown) break;
                 ts.tv_sec = 1;
@@ -533,7 +616,7 @@ static void *wt_thread_write_chunks (void __attribute__((unused)) *data) /* {{{ 
                         ch = flushing_list;
                         flushing_list = flushing_list->prev;
 
-                        wt_chunk_write_to_disk(ch);
+                        if(ch->len >0) wt_chunk_write_to_disk(ch);
                         wt_chunk_mark_as_free(ch);
                         nb -= 1;
                 }
