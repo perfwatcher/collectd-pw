@@ -470,30 +470,31 @@ static void wt_flush_and_free_chunks_tree(void) /* {{{ */
         
 } /* }}} wt_flush_and_free_chunks_tree */
 
-static void wt_chunks_mark_all_for_flush (short flush_all) /* {{{ */
+static void wt_chunks_mark_all_for_flush (time_t olderthan, char *hostname) /* {{{ */
 {
-                c_avl_iterator_t *iter;
-                char *key;
-                wt_chunk_t *ch;
-                time_t tm=0;
+        c_avl_iterator_t *iter;
+        char *key;
+        wt_chunk_t *ch;
+        time_t tm=0;
 
-                if(! flush_all) {
-                        tm = time(NULL);
-                        tm -= flushwhenolderthan;
-                }
+        if(olderthan > 0) {
+                tm = time(NULL);
+                tm -= olderthan;
+        }
 
-                iter = c_avl_get_iterator (wt_chunks_tree);
-                while (c_avl_iterator_next (iter, (void *) &key, (void *) &ch) == 0)
-                {
-                        if(flush_all || (ch->first_tm < tm)) {
-                                wt_chunk_t *ch_new;
-                                wt_chunk_mark_for_flush(ch);
-                                ch_new = wt_chunk_new(ch->hostname);
-                                c_avl_iterator_update_value(iter, ch_new);
-                        }
-                        if(0 != do_shutdown) break;
-                } /* while (c_avl_iterator_next) */
-                c_avl_iterator_destroy (iter);
+        iter = c_avl_get_iterator (wt_chunks_tree);
+        while (c_avl_iterator_next (iter, (void *) &key, (void *) &ch) == 0)
+        {
+                if(0 != do_shutdown) break;
+                if((olderthan > 0) && (ch->first_tm >= tm)) continue;
+                if(hostname && strcmp(hostname, ch->hostname)) continue;
+
+                wt_chunk_t *ch_new;
+                wt_chunk_mark_for_flush(ch);
+                ch_new = wt_chunk_new(ch->hostname);
+                c_avl_iterator_update_value(iter, ch_new);
+        } /* while (c_avl_iterator_next) */
+        c_avl_iterator_destroy (iter);
 
 } /* }}} int wt_chunks_mark_all_for_flush */
 
@@ -561,7 +562,7 @@ static void *wt_thread_check_old_chunks (void __attribute__((unused)) *data) /* 
                 struct timespec ts,rts;
                 time_t tm;
 
-                wt_chunks_mark_all_for_flush(0);
+                wt_chunks_mark_all_for_flush(flushwhenolderthan, NULL);
 
                 submit_gauge(wt_chunk_free_nb, "nb_values", "nb_free_chunks");
                 submit_gauge(wt_chunk_flush_nb, "nb_values", "nb_tops_to_flush");
@@ -656,14 +657,21 @@ static int wt_init (void) /* {{{ */
 } /* }}} int wt_init */
 
 static int wt_flush (cdtime_t timeout, /* {{{ */
-                const char *identifier __attribute__((unused)),
+                const char *identifier,
                 user_data_t *user_data)
 {
-        int status = 0;
+        if(NULL == identifier) {
+                wt_chunks_mark_all_for_flush(timeout, NULL);
+        } else {
+                char hostname[DATA_MAX_NAME_LEN];
+                char *s;
+                memcpy(hostname, identifier, DATA_MAX_NAME_LEN);
+                s = strchr(hostname, '/');
+                if(s) s[0] = '\0';
+                wt_chunks_mark_all_for_flush(timeout, hostname);
+        }
 
-        wt_chunks_mark_all_for_flush(1);
-
-        return (status);
+        return (0);
 } /* }}} int wt_flush */
 
 static int wt_shutdown (void) /* {{{ */
