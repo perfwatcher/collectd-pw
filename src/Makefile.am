@@ -530,6 +530,9 @@ endif
 if BUILD_JSONRPC_USE_PERFWATCHER
 jsonrpc_la_SOURCES += jsonrpc_cb_perfwatcher.c jsonrpc_cb_perfwatcher.h
 endif
+if BUILD_JSONRPC_USE_TOPPS
+jsonrpc_la_SOURCES += jsonrpc_cb_topps.c jsonrpc_cb_topps.h
+endif
 endif
 
 if BUILD_PLUGIN_LIBVIRT
