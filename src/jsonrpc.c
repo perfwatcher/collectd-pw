@@ -174,7 +174,7 @@ static int config_keys_num = STATIC_ARRAY_SIZE (config_keys);
 static int httpd_server_port=-1;
 static int max_clients = 16;
 #ifdef JSONRPC_USE_TOPPS
-static char toppsdatadir[2048] = "";
+char toppsdatadir[2048] = "";
 #endif
 
 
