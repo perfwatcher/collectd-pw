@@ -55,6 +55,7 @@ typedef struct wt_chunk_s {
         char *hostname;
         time_t first_tm;
         time_t last_tm;
+        cdtime_t last_notification_tm;
         short flush;
         struct wt_chunk_s *prev; /* when used in a list */
         struct wt_chunk_s *next; /* when used in a list */
@@ -121,6 +122,7 @@ static wt_chunk_t *wt_chunk_new(char *hostname) { /* {{{ */
         ch->hostname = hostname;
         ch->first_tm = time(NULL);;
         ch->last_tm = 0;
+        ch->last_notification_tm = 0;
         ch->flush = 0;
         ch->prev = NULL;
         ch->next = NULL;
@@ -336,6 +338,8 @@ static int wt_chunk_append_notification(wt_chunk_t *ch, const notification_t *n)
 
         assert(NULL != ch);
 
+        if(n->time == ch->last_notification_tm) return(0); /* duplicate */
+
 /* Compute the data section to put into the chunk */
         now = tm = time(NULL);
 	if (NULL == localtime_r (&now, &stm)) {
@@ -366,7 +370,22 @@ static int wt_chunk_append_notification(wt_chunk_t *ch, const notification_t *n)
         }
 
         if(0 == ch->len) ch->first_tm = tm;
+
+        /* Note : this does not expect that tm are chronologically sorted.
+         * However, some other software (or collectd plugin) may expect it.
+         * In case of problems, we may expect it here too. Let's see...
+         */
         if(tm > ch->last_tm) ch->last_tm = tm;
+
+        /* keep the last notification time to avoid duplicates */
+        /* Note : this system will only prevent from having 2 duplicates
+         * coming at the same time for the same host.
+         * For example, receiving A B B will result in keeping A B.
+         * But receving A B A will result in keeping all : A B A.
+         * However, this should not happen so often.
+         */
+        ch->last_notification_tm = n->time;
+
         ch->len += len;
         memcpy(ch->cur, timebuffer, timebuffer_len);
         ch->cur += timebuffer_len;
