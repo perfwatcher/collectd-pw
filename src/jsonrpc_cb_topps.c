@@ -141,6 +141,9 @@ static int check_path(const char *hostname, int tm_start, int tm_end, char *buff
         time_t best_distance;
         int best_n;
         int best_tm;
+        int restart_after_flush_n;
+        int restart_after_flush_tm;
+        int restart_after_flush_needed;
         short watchdog;
 
         if (toppsdatadir != NULL)
@@ -166,6 +169,9 @@ static int check_path(const char *hostname, int tm_start, int tm_end, char *buff
         best_distance = 0;
         best_n = 0;
         best_tm = 0;
+        restart_after_flush_tm = 0;
+        restart_after_flush_n = 0;
+        restart_after_flush_needed = 0;
 
         distance = tm_start; /* Some value big enough to be bigger than any computed distance */
 
@@ -176,12 +182,42 @@ static int check_path(const char *hostname, int tm_start, int tm_end, char *buff
 #define WATCHDOGMAX 100 /* max number of cycles in this loop. Prevent from infinite loop if something is missing in this complex algo */
         for(watchdog = 0; watchdog < WATCHDOGMAX; watchdog++) { /* There are many cases to get out of this loop. See the many 'break' instructions */
                 int local_err;
+
+                if(restart_after_flush_needed == 2) {
+                        /* Flushing may be needed.
+                         * restart_after_flush_needed == 0 -> file found
+                         * restart_after_flush_needed == 1 -> AABBCC0000-X.gz not found but maybe AABBCD0000-0.gz exists
+                         * restart_after_flush_needed == 2 -> 2 files not found including with n==0. Flush may be needed.
+                         * restart_after_flush_needed  > 2 -> flush has already been done and no file found. No more flush.
+                         */
+                        int status;
+                        status = plugin_flush ("write_top", TIME_T_TO_CDTIME_T(10), hostname);
+                        if (status == 0) {
+                                /* Flush done. Try again with older values */
+                                tm = restart_after_flush_tm;
+                                n = restart_after_flush_n;
+                        }
+                        /* Note : do not reset restart_after_flush_needed
+                         * because we flush only on time.
+                         *
+                         * Note : if restart_after_flush_needed > 2, continue
+                         * anyway, even with many file not found. tm_end is
+                         * the real limit, not having many missing files.
+                         */
+                }
                 if(mkpath_by_tm_and_num(buffer + offset, bufferlen - offset,tm, n)) {
                         return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
                 }
 
                 if(NULL == (gzfh = gzopen(buffer, "r"))) {
                         /* File not found or whatever */
+                        if(tm_start <= tm_end) { /* When searching forward only */
+                                if (0 == restart_after_flush_needed) {
+                                        restart_after_flush_n = n;
+                                        restart_after_flush_tm = tm;
+                                }
+                                restart_after_flush_needed++;
+                        }
                         n = 0;
                         if(tm_start <= tm_end) {
                                 tm += 10000; /* search forward */
@@ -191,6 +227,7 @@ static int check_path(const char *hostname, int tm_start, int tm_end, char *buff
                                 if(tm < (tm_end - 10000)) break; /* Too far; */
                         }
                 } else { /* NULL == (gzfh = gzopen(buffer, "r")) */
+                        restart_after_flush_needed = 0; /* If a file was found, reset flush_needed counter */
                         distance = check_if_file_contains_tm(gzfh, buffer, tm_start,&local_err);
                         gzclose(gzfh);
                         if(0 == local_err) { /* ignore this file if something wrong happened */
