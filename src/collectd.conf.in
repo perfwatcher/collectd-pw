@@ -161,6 +161,7 @@
 #@BUILD_PLUGIN_WRITE_HTTP_TRUE@LoadPlugin write_http
 #@BUILD_PLUGIN_WRITE_REDIS_TRUE@LoadPlugin write_redis
 #@BUILD_PLUGIN_WRITE_MONGODB_TRUE@LoadPlugin write_mongodb
+#@BUILD_PLUGIN_WRITE_TOP_TRUE@LoadPlugin write_top
 #@BUILD_PLUGIN_XMMS_TRUE@LoadPlugin xmms
 #@BUILD_PLUGIN_ZFS_ARC_TRUE@LoadPlugin zfs_arc
 
@@ -1055,6 +1056,12 @@
 #		Timeout 1000
 #		StoreRates false
 #	</Node>
+#</Plugin>
+
+#<Plugin write_top>
+#	DataDir "@localstatedir@/lib/@PACKAGE_NAME@/top"
+#	FlushWhenOlderThanMin 60
+#	FlushWhenBiggerThanK 500
 #</Plugin>
 
 ##############################################################################
