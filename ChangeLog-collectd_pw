@@ -1,3 +1,12 @@
+2013-03-01 version 5.2.0.20130301
+
+New plugin :
+- plugin-write_top
+
+Updates on :
+- plugin-jsonrpc (to work with new plugin-write_top)
+- plugin-top (bugfix)
+
 2013-01-31 version 5.2.0.20130131
 
 Updates on :
