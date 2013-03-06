@@ -1,7 +1,9 @@
 #include "collectd.h"
 #include "plugin.h"
 #include "common.h"
+#include <time.h>
 
+static time_t sysconfig_last_run = 0;
 
 static void get_dmidecode (char *message) {
     char buf[80]; 
@@ -96,8 +98,14 @@ static void sysconfig_collectd_data_and_send(void) {
 }
 
 static int sysconfig_read (void) {
-	sysconfig_collectd_data_and_send();
-    plugin_unregister_read ("sysconfig");
+	time_t now;
+
+	now = time(NULL);
+	/* Run every 24 hours */
+	if(now-sysconfig_last_run > 86400) {
+			sysconfig_collectd_data_and_send();
+			sysconfig_last_run = now;
+	}
     return 0;
 }
 
