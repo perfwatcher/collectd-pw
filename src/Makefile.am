@@ -1339,6 +1339,17 @@ collectd_LDADD += "-dlopen" write_redis.la
 collectd_DEPENDENCIES += write_redis.la
 endif
 
+if BUILD_PLUGIN_WRITE_TOP
+pkglib_LTLIBRARIES += write_top.la
+write_top_la_SOURCES = write_top.c 
+write_top_la_LDFLAGS = -module -avoid-version
+write_top_la_CFLAGS = $(AM_CFLAGS)
+write_top_la_LIBADD = -lz
+collectd_LDADD += "-dlopen" write_top.la
+collectd_DEPENDENCIES += write_top.la
+endif
+
+
 if BUILD_PLUGIN_XMMS
 pkglib_LTLIBRARIES += xmms.la
 xmms_la_SOURCES = xmms.c
