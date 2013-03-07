@@ -256,7 +256,8 @@ static MYSQL *getconnection (mysql_database_t *db)
 		}
 	}
 
-	if ((db->con = mysql_init (db->con)) == NULL)
+	if (NULL == db->con) db->con = mysql_init (db->con);
+	if (NULL == db->con)
 	{
 		ERROR ("mysql_init failed: %s", mysql_error (db->con));
 		db->state = 0;
