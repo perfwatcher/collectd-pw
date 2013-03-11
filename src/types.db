@@ -8,6 +8,7 @@ ath_nodes		value:GAUGE:0:65535
 ath_stat		value:DERIVE:0:U
 bitrate			value:GAUGE:0:4294967295
 bytes			value:GAUGE:0:U
+cache_entries		value:GAUGE:0:U
 cache_eviction		value:DERIVE:0:U
 cache_operation		value:DERIVE:0:U
 cache_ratio		value:GAUGE:0:100
@@ -100,6 +101,7 @@ mysql_handler		value:DERIVE:0:U
 mysql_locks		value:DERIVE:0:U
 mysql_log_position	value:DERIVE:0:U
 mysql_octets		rx:DERIVE:0:U, tx:DERIVE:0:U
+nb_values		value:GAUGE:0:U
 nfsclient_sends		value:DERIVE:0:U
 nfsclient_backlog	value:DERIVE:0:U
 nfsclient_ops		read:DERIVE:0:U, write:DERIVE:0:U
