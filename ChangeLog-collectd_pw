@@ -1,3 +1,15 @@
+2013-03-11 version 5.2.0.20130311
+
+New patch :
+
+- patch-mysql_close_memory_leak
+
+Updates on :
+
+- plugin-top
+- plugin-jsonrpc
+- plugin-notify_file
+
 2013-03-01 version 5.2.0.20130301
 
 New plugin :
