@@ -3387,6 +3387,55 @@ Default: C<Collectd notify: %s@%s>
 
 =back
 
+=head2 Plugin C<notify_file>
+
+This plugin writes a notification to the disk.
+
+=over 4
+
+=item B<DataDir> I<path>
+
+=item B<Plugin> I<type>
+
+=item B<InvertPluginList> B<true>|B<false>
+
+=item B<LinkLast> I<type>
+
+=back
+
+Write notifications to I<DataDir>/I<hostname>/I<plugin>[-I<instance>]/I<timestamp path>/I<type>[-I<instance>]-I<timestamp>.gz
+
+I<timestamp path> is a subpath like AA/AABB/AABBCC for a timestamp like AABBCCDDDD.
+
+Example (timestamp is 1362495702) :
+
+  /datadir/hostname/plugin-instance/13/1361/136249/type-instance-1362495702.gz
+
+The I<Plugin> directive can be used (one or more times) to build the include list of notifications to write.
+
+The I<InvertPluginList>, when set, transforms the include list into an exclude list.
+
+The I<LinkLast> directive can be used (one or more times) to build the list of plugins (the same as in I<Plugin>)
+for which a symlink will be created and linked to the last notification file.
+
+Example (timestamp is 1362495702) : when our file /datadir/hostname/plugin-instance/13/1361/136249/type-instance-1362495702.gz
+is created, the following symlink will be created (or removed/recreated) :
+
+  /datadir/hostname/plugin-instance/last/type-instance-last.gz -> /datadir/hostname/plugin-instance/13/1361/136249/type-instance-1362495702.gz
+
+Example :
+
+ <Plugin notify_file>
+   DataDir /var/lib/collectd/notification
+   Plugin "sysconfig"
+   Plugin "top"
+   InvertPluginList false
+   LinkLast "sysconfig"
+ </Plugin>
+
+Notifications for plugins I<sysconfig> and I<top> will be written to disk. Additionnaly, there will be links to last notifications
+of type I<sysconfig> (but not for I<top>).
+
 =head2 Plugin C<ntpd>
 
 =over 4

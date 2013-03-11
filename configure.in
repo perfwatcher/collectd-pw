@@ -5311,6 +5311,7 @@ AC_PLUGIN([nfs],         [$plugin_nfs],        [NFS statistics])
 AC_PLUGIN([nginx],       [$with_libcurl],      [nginx statistics])
 AC_PLUGIN([notify_desktop], [$with_libnotify], [Desktop notifications])
 AC_PLUGIN([notify_email], [$with_libesmtp],    [Email notifier])
+AC_PLUGIN([notify_file], [$with_libz],		   [File notifications])
 AC_PLUGIN([ntpd],        [yes],                [NTPd statistics])
 AC_PLUGIN([numa],        [$plugin_numa],       [NUMA virtual memory statistics])
 AC_PLUGIN([nut],         [$with_libupsclient], [Network UPS tools statistics])
@@ -5600,6 +5601,7 @@ Configuration:
     libxml2 . . . . . . . $with_libxml2
     libxmms . . . . . . . $with_libxmms
     libyajl . . . . . . . $with_libyajl
+    libz      . . . . . . $with_libz
     libevent  . . . . . . $with_libevent
     protobuf-c  . . . . . $have_protoc_c
     oracle  . . . . . . . $with_oracle
@@ -5677,6 +5679,7 @@ Configuration:
     nginx . . . . . . . . $enable_nginx
     notify_desktop  . . . $enable_notify_desktop
     notify_email  . . . . $enable_notify_email
+    notify_file . . . . . $enable_notify_file
     ntpd  . . . . . . . . $enable_ntpd
     numa  . . . . . . . . $enable_numa
     nut . . . . . . . . . $enable_nut
