@@ -1415,7 +1415,24 @@ EXTRA_DIST +=   collectd.conf.pod \
 	fi
 
 pinba.pb-c.c pinba.pb-c.h: pinba.proto
-	protoc-c --c_out . pinba.proto
+if HAVE_PROTOC_C
+	protoc-c -I$(srcdir) --c_out . $(srcdir)/pinba.proto
+else
+	@echo "INFO Could not find protoc-c. This tool is necessary to generate $@"
+	@echo "INFO Check http://code.google.com/p/protobuf-c for more information"
+	@echo "INFO Note : package for Debian (Ubuntu...) is protobuf-c-compiler and protobuf-c0-dev will also be needed"
+	@echo "INFO Note : package for Fedora (Redhat, Centos...) is protobuf-c and protobuf-c-devel will also be needed"
+endif
+
+riemann.pb-c.c riemann.pb-c.h: riemann.proto
+if HAVE_PROTOC_C
+	protoc-c -I$(srcdir) --c_out . $(srcdir)/riemann.proto
+else
+	@echo "INFO Could not find protoc-c. This tool is necessary to generate $@"
+	@echo "INFO Check http://code.google.com/p/protobuf-c for more information"
+	@echo "INFO Note : package for Debian (Ubuntu...) is protobuf-c-compiler and protobuf-c0-dev will also be needed"
+	@echo "INFO Note : package for Fedora (Redhat, Centos...) is protobuf-c and protobuf-c-devel will also be needed"
+endif
 
 install-exec-hook:
 	$(mkinstalldirs) $(DESTDIR)$(sysconfdir)

@@ -50,6 +50,9 @@ PKG_PROG_PKG_CONFIG
 
 AC_CHECK_PROG([have_protoc_c], [protoc-c], [yes], [no])
 AM_CONDITIONAL(HAVE_PROTOC_C, test "x$have_protoc_c" = "xyes")
+have_protobuf_c_h=no
+AC_CHECK_HEADERS([google/protobuf-c/protobuf-c.h], [have_protobuf_c_h=yes] )
+
 
 AC_MSG_CHECKING([for kernel type ($host_os)])
 case $host_os in
@@ -4587,8 +4590,10 @@ plugin_multimeter="no"
 plugin_nfs="no"
 plugin_numa="no"
 plugin_perl="no"
+plugin_pinba="no"
 plugin_processes="no"
 plugin_protocols="no"
+plugin_riemann="no"
 plugin_serial="no"
 plugin_swap="no"
 plugin_tape="no"
@@ -4853,6 +4858,17 @@ then
 	plugin_users="yes"
 fi
 
+if test "x$have_protobuf_c_h$have_protobuf_c_h" = "xyesyes" 
+then
+	plugin_pinba="yes"
+fi
+
+if test "x$have_protobuf_c_h$have_protobuf_c_h" = "xyesyes" 
+then
+	plugin_riemann="yes"
+fi
+
+
 m4_divert_once([HELP_ENABLE], [
 collectd plugins:])
 
@@ -4943,7 +4959,7 @@ AC_PLUGIN([oracle],      [$with_oracle],       [Oracle plugin])
 AC_PLUGIN([perl],        [$plugin_perl],       [Embed a Perl interpreter])
 AC_PLUGIN([pf],          [$have_net_pfvar_h],  [BSD packet filter (PF) statistics])
 # FIXME: Check for libevent, too.
-AC_PLUGIN([pinba],       [$have_protoc_c],     [Pinba statistics])
+AC_PLUGIN([pinba],       [$plugin_pinba],      [Pinba statistics])
 AC_PLUGIN([ping],        [$with_liboping],     [Network latency statistics])
 AC_PLUGIN([postgresql],  [$with_libpq],        [PostgreSQL database statistics])
 AC_PLUGIN([powerdns],    [yes],                [PowerDNS statistics])
@@ -4985,6 +5001,8 @@ AC_PLUGIN([write_graphite], [yes],             [Graphite / Carbon output plugin]
 AC_PLUGIN([write_http],  [$with_libcurl],      [HTTP output plugin])
 AC_PLUGIN([write_redis], [$with_libcredis],    [Redis output plugin])
 AC_PLUGIN([write_mongodb], [$with_libmongoc],  [MongoDB output plugin])
+AC_PLUGIN([write_riemann], [$plugin_riemann],   [Riemann output plugin])
+AC_PLUGIN([write_top],   [$with_libz],                [Top output plugin])
 AC_PLUGIN([xmms],        [$with_libxmms],      [XMMS statistics])
 AC_PLUGIN([zfs_arc],     [$plugin_zfs_arc],    [ZFS ARC statistics])
 
@@ -5152,6 +5170,29 @@ if test "x$with_perl_bindings" = "xyes" \
 then
 	with_perl_bindings="yes ($PERL_BINDINGS_OPTIONS)"
 fi
+
+if test "x$plugin_pinba=yes" && test "x$enable_pinba" != "xyes" 
+then
+	enable_pinba="no"
+    if test "x$have_protobuf_c_h" != "xyes"; then
+    	enable_pinba+=" (missing protobuf-c.h)"
+    fi
+    if test "x$have_protoc_c" != "xyes"; then
+    	enable_pinba+=" (missing protoc-c)"
+    fi
+fi
+
+if test "x$plugin_riemann=yes" && test "x$enable_write_riemann" != "xyes"
+then
+	enable_write_riemann=no
+    if test "x$have_protobuf_c_h" != "xyes"; then
+    	enable_write_riemann+=" (missing protobuf-c.h)"
+    fi
+    if test "x$have_protoc_c" != "xyes"; then
+    	enable_write_riemann+=" (missing protoc-c)"
+    fi
+fi
+
 
 cat <<EOF;
 
