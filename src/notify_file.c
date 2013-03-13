@@ -160,7 +160,6 @@ static int notify_file_notify (const notification_t * n, user_data_t __attribute
 {
         char         filename[512];
         FILE        *notify_file;
-        int          notify_file_fd;
 
         if (ignorelist_match (plugintype_list, n->plugin) != 0)
                 return 0;
@@ -181,7 +180,6 @@ static int notify_file_notify (const notification_t * n, user_data_t __attribute
                                 sstrerror (errno, errbuf, sizeof (errbuf)));
                 return (-1);
         }
-        notify_file_fd = fileno (notify_file);
 
         gzwrite(notify_file, n->message, strlen(n->message));
         //gzprintf (notify_file, "%s\n", n->message);
