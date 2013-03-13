@@ -141,9 +141,9 @@ static int notify_file_config (const char *key, const char *value) /* {{{ */
 								datadir = NULL;
 						}
 				}
-		} else if (strcasecmp ("PluginType", key) == 0) {
+		} else if (strcasecmp ("Plugin", key) == 0) {
 				ignorelist_add (plugintype_list, value);
-		} else if (strcasecmp ("InvertPluginTypeList", key) == 0) {
+		} else if (strcasecmp ("InvertPluginList", key) == 0) {
 				int invert = 1;
 				if (IS_TRUE (value))
 						invert = 0;
