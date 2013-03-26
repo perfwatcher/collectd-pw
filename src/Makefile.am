@@ -302,7 +302,8 @@ notify_file_la_SOURCES = notify_file.c
 notify_file_la_LDFLAGS = -module -avoid-version
 collectd_LDADD += "-dlopen" notify_file.la
 collectd_DEPENDENCIES += notify_file.la
-notify_file_la_LIBADD = -lz
+notify_file_la_CFLAGS = $(AM_CFLAGS) ${BUILD_WITH_LIBZ_CPPFLAGS}
+notify_file_la_LIBADD = ${BUILD_WITH_LIBZ_LIBS}
 endif
 
 if BUILD_PLUGIN_CURL_JSON
