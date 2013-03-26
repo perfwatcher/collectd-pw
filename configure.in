@@ -5603,7 +5603,6 @@ Configuration:
     libxml2 . . . . . . . $with_libxml2
     libxmms . . . . . . . $with_libxmms
     libyajl . . . . . . . $with_libyajl
-    libz      . . . . . . $with_libz
     libevent  . . . . . . $with_libevent
     protobuf-c  . . . . . $have_protoc_c
     oracle  . . . . . . . $with_oracle
