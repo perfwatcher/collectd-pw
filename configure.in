@@ -5757,6 +5757,7 @@ Configuration:
     write_http  . . . . . $enable_write_http
     write_redis . . . . . $enable_write_redis
     write_mongodb . . . . $enable_write_mongodb
+    write_top . . . . . . $enable_write_top
     xmms  . . . . . . . . $enable_xmms
     zfs_arc . . . . . . . $enable_zfs_arc
 
