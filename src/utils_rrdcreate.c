@@ -391,7 +391,6 @@ int cu_rrd_rra_types_set(rrdcreate_config_t *cfg, const char *value) {
 
   return(0);
 }
-
 int cu_rrd_create_file (const char *filename, /* {{{ */
     const data_set_t *ds, const value_list_t *vl,
     const rrdcreate_config_t *cfg)

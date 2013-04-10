@@ -4824,6 +4824,12 @@ The last two are equivalent.
 
 =back
 
+=head2 Plugin C<rrdtool_createonly>
+
+Same as rrdtool (same options).
+However, it will only create file that does not exist.
+You need to use the plugin rrdtool or rrdcached to fill the rrdfiles.
+
 =head2 Plugin C<sensors>
 
 The I<Sensors plugin> uses B<lm_sensors> to retrieve sensor-values. This means
