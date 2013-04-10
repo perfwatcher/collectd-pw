@@ -1,0 +1,27 @@
+2012-12-05 version 5.2.2.20130410
+
+Include patchs :
+- patch/compilation_fix
+- patch/config_rra_in_rrdcached_plugin
+- patch/cpu
+- patch/disk_solaris
+- patch/fix_for_large_MaxPacketSize
+- patch/fix_interfaces_solaris
+- patch/logfile
+- patch/network_queuelength
+- patch/nfs_stats_with_network_plugin
+- patch/notification_forwarding
+- patch/perfwatcher_addons
+- patch/process
+- patch/protocols_solaris
+- plugin/basic_aggregator
+- plugin/jsonrpc
+- plugin/notify_file
+- plugin/rrdtool_createonly
+- plugin/sysconfig
+- plugin/top
+- plugin/write_top
+
+2013-04-10 version 5.2.2
+
+Sources from upstream collectd
