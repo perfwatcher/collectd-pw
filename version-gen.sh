@@ -10,4 +10,8 @@ fi
 
 VERSION="`echo \"$VERSION\" | sed -e 's/-/./g'`"
 
+if [ ! `echo $VERSION | cut -d. -f 1 | grep "^[[:digit:]]*\$"` ]; then
+	VERSION="$DEFAULT_VERSION"
+fi
+
 echo -n "$VERSION"
