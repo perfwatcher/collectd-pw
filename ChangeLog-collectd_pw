@@ -1,11 +1,16 @@
-2013-03-26 version 5.2.0-20130326
+2013-05-02 version 5.2.1-20130502
+
+Updates on :
+- plugin/disk_solaris (memory leak fixed)
+
+2013-03-26 version 5.2.1-20130326
 
 Updates on :
 - plugin/jsonrpc
 - plugin/notify_file
 - plugin/write_top
 
-2013-03-13 version 5.2.0.20130313
+2013-03-13 version 5.2.1.20130313
 
 Updates on :
 
