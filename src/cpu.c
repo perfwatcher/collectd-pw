@@ -121,7 +121,7 @@ static int cpu_temp_retry_max     = 1;
 # define MAX_NUMCPU 256
 extern kstat_ctl_t *kc;
 static kstat_t *ksp[MAX_NUMCPU];
-static int numcpu;
+static unsigned long numcpu;
 /* #endif HAVE_LIBKSTAT */
 
 #elif CAN_USE_SYSCTL
@@ -145,7 +145,7 @@ static int numcpu;
 static int pnumcpu;
 #endif /* HAVE_PERFSTAT */
 
-static int nbcpu = 0;
+static int numcpu_effective = 0;
 
 static int init (void)
 {
@@ -182,6 +182,11 @@ static int init (void)
 			ksp_chain = ksp_chain->ks_next)
 		if (strncmp (ksp_chain->ks_module, "cpu_stat", 8) == 0)
 			ksp[numcpu++] = ksp_chain;
+	
+	if(numcpu == 0) {
+		ERROR ("cpu plugin: found no 'cpu_stat' in kstat chain. assert(numcpu != 0) will fail.");
+		return(-1);
+	}
 /* #endif HAVE_LIBKSTAT */
 
 #elif CAN_USE_SYSCTL
@@ -249,13 +254,12 @@ static void submit (int cpu_num, const char *type_instance, derive_t value)
 	value_list_t vl = VALUE_LIST_INIT;
 
 	values[0].derive = value;
-	if (cpu_num  >= nbcpu) { nbcpu = cpu_num ; }
 	vl.values = values;
 	vl.values_len = 1;
 	sstrncpy (vl.host, hostname_g, sizeof (vl.host));
 	sstrncpy (vl.plugin, "cpu", sizeof (vl.plugin));
 	if (cpu_num >= 0) {
-	ssnprintf (vl.plugin_instance, sizeof (vl.plugin_instance),
+		ssnprintf (vl.plugin_instance, sizeof (vl.plugin_instance),
 			"%i", cpu_num);
 	} else {
 		ssnprintf (vl.plugin_instance, sizeof (vl.plugin_instance), 
@@ -304,6 +308,7 @@ static int cpu_read (void)
 
 	host_t cpu_host;
 
+	numcpu_effective = 0;
 	for (cpu = 0; cpu < cpu_list_len; cpu++)
 	{
 #if PROCESSOR_CPU_LOAD_INFO
@@ -328,6 +333,7 @@ static int cpu_read (void)
 		submit (cpu, "nice", (derive_t) cpu_info.cpu_ticks[CPU_STATE_NICE]);
 		submit (cpu, "system", (derive_t) cpu_info.cpu_ticks[CPU_STATE_SYSTEM]);
 		submit (cpu, "idle", (derive_t) cpu_info.cpu_ticks[CPU_STATE_IDLE]);
+		numcpu_effective+=1;
 #endif /* PROCESSOR_CPU_LOAD_INFO */
 #if PROCESSOR_TEMPERATURE
 		/*
@@ -380,6 +386,8 @@ static int cpu_read (void)
 	int cpu;
 	derive_t user, nice, syst, idle;
 	derive_t wait, intr, sitr, stea; /* sitr == soft interrupt */
+	derive_t user_total, nice_total, syst_total, idle_total;
+	derive_t wait_total, intr_total, sitr_total, stea_total; /* sitr == soft interrupt */
 	static int hz;
 	FILE *fh;
 	char buf[1024];
@@ -398,6 +406,8 @@ static int cpu_read (void)
 		return (-1);
 	}
 
+	user_total = nice_total = syst_total = idle_total = wait_total = intr_total = sitr_total = stea_total = -1;
+	numcpu_effective=0;
 	while (fgets (buf, 1024, fh) != NULL)
 	{
 		user = nice = syst = idle = wait = intr = sitr = stea = -1;
@@ -411,7 +421,7 @@ static int cpu_read (void)
 			continue;
 
 		if (buf[3] != 0) {
-		cpu = atoi (fields[0] + 3);
+			cpu = atoi (fields[0] + 3);
 		} else { cpu = -1; }
 		user = atoll (fields[1]);
 		nice = atoll (fields[2]);
@@ -427,17 +437,39 @@ static int cpu_read (void)
 			stea = atoll (fields[8]);
 		}
 		
-		if (user != -1) { submit (cpu, "user",		(derive_t) (user * (100.0 / hz)/(cpu == -1 ? numcpu : 1))); }
-		if (nice != -1) { submit (cpu, "nice",		(derive_t) (nice * (100.0 / hz)/(cpu == -1 ? numcpu : 1))); }
-		if (syst != -1) { submit (cpu, "system",	(derive_t) (syst * (100.0 / hz)/(cpu == -1 ? numcpu : 1))); }
-		if (idle != -1) { submit (cpu, "idle",		(derive_t) (idle * (100.0 / hz)/(cpu == -1 ? numcpu : 1))); }
-		if (wait != -1) { submit (cpu, "wait",		(derive_t) (wait * (100.0 / hz)/(cpu == -1 ? numcpu : 1))); }
-		if (intr != -1) { submit (cpu, "interrupt",	(derive_t) (intr * (100.0 / hz)/(cpu == -1 ? numcpu : 1))); }
-		if (sitr != -1) { submit (cpu, "softirq",	(derive_t) (sitr * (100.0 / hz)/(cpu == -1 ? numcpu : 1))); }
-		if (stea != -1) { submit (cpu, "steal",		(derive_t) (stea * (100.0 / hz)/(cpu == -1 ? numcpu : 1))); }
+		if(cpu == -1) {
+				user_total = user;
+				nice_total = nice;
+				syst_total = syst;
+				idle_total = idle;
+				wait_total = wait;
+				intr_total = intr;
+				sitr_total = sitr;
+				stea_total = stea;
+		} else {
+				if (user != -1) { submit (cpu, "user",		(derive_t) (user * (100.0 / hz))); }
+				if (nice != -1) { submit (cpu, "nice",		(derive_t) (nice * (100.0 / hz))); }
+				if (syst != -1) { submit (cpu, "system",	(derive_t) (syst * (100.0 / hz))); }
+				if (idle != -1) { submit (cpu, "idle",		(derive_t) (idle * (100.0 / hz))); }
+				if (wait != -1) { submit (cpu, "wait",		(derive_t) (wait * (100.0 / hz))); }
+				if (intr != -1) { submit (cpu, "interrupt",	(derive_t) (intr * (100.0 / hz))); }
+				if (sitr != -1) { submit (cpu, "softirq",	(derive_t) (sitr * (100.0 / hz))); }
+				if (stea != -1) { submit (cpu, "steal",		(derive_t) (stea * (100.0 / hz))); }
+				numcpu_effective+=1;
+		}
+
 	}
 
 	fclose (fh);
+
+	if (user_total != -1) { submit (-1, "user",			(derive_t) (user_total * (100.0 / hz)/numcpu)); }
+	if (nice_total != -1) { submit (-1, "nice",			(derive_t) (nice_total * (100.0 / hz)/numcpu)); }
+	if (syst_total != -1) { submit (-1, "system",		(derive_t) (syst_total * (100.0 / hz)/numcpu)); }
+	if (idle_total != -1) { submit (-1, "idle",			(derive_t) (idle_total * (100.0 / hz)/numcpu)); }
+	if (wait_total != -1) { submit (-1, "wait",			(derive_t) (wait_total * (100.0 / hz)/numcpu)); }
+	if (intr_total != -1) { submit (-1, "interrupt",	(derive_t) (intr_total * (100.0 / hz)/numcpu)); }
+	if (sitr_total != -1) { submit (-1, "softirq",		(derive_t) (sitr_total * (100.0 / hz)/numcpu)); }
+	if (stea_total != -1) { submit (-1, "steal",		(derive_t) (stea_total * (100.0 / hz)/numcpu)); }
 /* #endif defined(KERNEL_LINUX) */
 
 #elif defined(HAVE_LIBKSTAT)
@@ -445,12 +477,17 @@ static int cpu_read (void)
 	derive_t user, syst, idle, wait, total;
 	derive_t tuser = 0, tsyst = 0, tidle = 0, twait = 0;
 	static cpu_stat_t cs;
+	unsigned long local_copy_of_numcpu = numcpu;
 
 	int hz = sysconf(_SC_CLK_TCK);
+	assert(hz != 0);
 	if (kc == NULL)
 		return (-1);
+	if(local_copy_of_numcpu <= 0) 
+		return(-1);
 
-	for (cpu = 0; cpu < numcpu; cpu++)
+	numcpu_effective=0;
+	for (cpu = 0; cpu < local_copy_of_numcpu; cpu++)
 	{
 		if (kstat_read (kc, ksp[cpu], &cs) == -1)
 			continue; /* error message? */
@@ -473,11 +510,12 @@ static int cpu_read (void)
 		submit (ksp[cpu]->ks_instance, "system", syst);
 		submit (ksp[cpu]->ks_instance, "idle", idle);
 		submit (ksp[cpu]->ks_instance, "wait", wait);
+		numcpu_effective+=1;
 	}
-	submit (-1, "user", tuser / numcpu);
-	submit (-1, "system", tsyst / numcpu);
-	submit (-1, "idle", tidle / numcpu);
-	submit (-1, "wait", twait / numcpu);
+	submit (-1, "user", tuser / numcpu_effective);
+	submit (-1, "system", tsyst / numcpu_effective);
+	submit (-1, "idle", tidle / numcpu_effective);
+	submit (-1, "wait", twait / numcpu_effective);
 /* #endif defined(HAVE_LIBKSTAT) */
 
 #elif CAN_USE_SYSCTL
@@ -535,12 +573,14 @@ static int cpu_read (void)
 		}
 	}
 
+	numcpu_effective=0;
 	for (i = 0; i < numcpu; i++) {
 		submit (i, "user",      cpuinfo[i][CP_USER]);
 		submit (i, "nice",      cpuinfo[i][CP_NICE]);
 		submit (i, "system",    cpuinfo[i][CP_SYS]);
 		submit (i, "idle",      cpuinfo[i][CP_IDLE]);
 		submit (i, "interrupt", cpuinfo[i][CP_INTR]);
+		numcpu_effective+=1;
 	}
 /* #endif CAN_USE_SYSCTL */
 #elif defined(HAVE_SYSCTLBYNAME) && defined(HAVE_SYSCTL_KERN_CP_TIMES)
@@ -559,12 +599,14 @@ static int cpu_read (void)
 		return (-1);
 	}
 
+	numcpu_effective=0;
 	for (i = 0; i < numcpu; i++) {
 		submit (i, "user", cpuinfo[i][CP_USER]);
 		submit (i, "nice", cpuinfo[i][CP_NICE]);
 		submit (i, "system", cpuinfo[i][CP_SYS]);
 		submit (i, "idle", cpuinfo[i][CP_IDLE]);
 		submit (i, "interrupt", cpuinfo[i][CP_INTR]);
+		numcpu_effective+=1;
 	}
 /* #endif HAVE_SYSCTL_KERN_CP_TIMES */
 #elif defined(HAVE_SYSCTLBYNAME)
@@ -586,6 +628,7 @@ static int cpu_read (void)
 	submit (0, "system", cpuinfo[CP_SYS]);
 	submit (0, "idle", cpuinfo[CP_IDLE]);
 	submit (0, "interrupt", cpuinfo[CP_INTR]);
+	numcpu_effective=1;
 /* #endif HAVE_SYSCTLBYNAME */
 
 #elif defined(HAVE_LIBSTATGRAB)
@@ -604,6 +647,7 @@ static int cpu_read (void)
 	submit (0, "system", (derive_t) cs->kernel);
 	submit (0, "user",   (derive_t) cs->user);
 	submit (0, "wait",   (derive_t) cs->iowait);
+	numcpu_effective=1;
 /* #endif HAVE_LIBSTATGRAB */
 
 #elif defined(HAVE_PERFSTAT)
@@ -636,16 +680,18 @@ static int cpu_read (void)
 		return (-1);
 	}
 
+	numcpu_effective=0;
 	for (i = 0; i < cpus; i++) 
 	{
 		submit (i, "idle",   (derive_t) perfcpu[i].idle);
 		submit (i, "system", (derive_t) perfcpu[i].sys);
 		submit (i, "user",   (derive_t) perfcpu[i].user);
 		submit (i, "wait",   (derive_t) perfcpu[i].wait);
+		numcpu_effective+=1;
 	}
 #endif /* HAVE_PERFSTAT */
 
-	submit_cpuinfo ("nbcpu", "", nbcpu + 1);
+	submit_cpuinfo ("nbcpu", "", numcpu_effective);
 	return (0);
 }
 
