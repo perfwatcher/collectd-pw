@@ -391,17 +391,17 @@ static int config_nfs_mountpoint_add(oconfig_item_t *ci) /* {{{ */
 	for (i = 0; i < ci->children_num; i++)
 	{
 		oconfig_item_t *child = ci->children + i;
-		if (strcasecmp ("min_age", child->key) == 0) {
+		if (strcasecmp ("MinAge", child->key) == 0) {
 			if (child->values[0].type != OCONFIG_TYPE_NUMBER) {
-				WARNING ("nfs plugin:  'min_age' needs exactly one int (time) argument.");
+				WARNING ("nfs plugin:  'MinAge' needs exactly one int (time) argument.");
 				status = -1;
 				break;
 			} else {
 				item->min_age = child->values[0].value.number;
 			}
-		} else if (strcasecmp ("enable", child->key) == 0) {
+		} else if (strcasecmp ("Enable", child->key) == 0) {
 			if (child->values[0].type != OCONFIG_TYPE_BOOLEAN) {
-				WARNING ("nfs plugin:  'min_age' needs exactly one boolean argument.");
+				WARNING ("nfs plugin:  'Enable' needs exactly one boolean argument.");
 				status = -1;
 				break;
 			} else {
@@ -433,14 +433,14 @@ static int nfs_config_cb (oconfig_item_t *ci) /* {{{ */
 	for (i = 0; i < ci->children_num; i++)
 	{
 		oconfig_item_t *child = ci->children + i;
-		if (strcasecmp ("mountpoint", child->key) == 0) {
+		if (strcasecmp ("Mountpoint", child->key) == 0) {
 			if(0 != config_nfs_mountpoint_add (child)) {
 				nfs_deconfig_cb();
 				return(-1);
 			}
-		} else if (strcasecmp ("enable_client_stats_per_mountpoint", child->key) == 0) {
+		} else if (strcasecmp ("EnableClientStatsPerMountpoint", child->key) == 0) {
 			if (child->values[0].type != OCONFIG_TYPE_BOOLEAN) {
-				WARNING ("nfs plugin:  'enable_client_stats_per_mountpoint' needs exactly one boolean argument.");
+				WARNING ("nfs plugin:  'EnableClientStatsPerMountpoint' needs exactly one boolean argument.");
 				nfs_deconfig_cb();
 				return(-1);
 			} else {
@@ -652,9 +652,9 @@ static void mountstats_compute_and_submit (mountstats_t *m, mountstats_t *oldm) 
 	derive_t sends, backlog, ops[NFS_OPERATIONS_NB], kilobytes[NFS_OPERATIONS_NB];
 	gauge_t retrans[NFS_OPERATIONS_NB], kb_per_op[NFS_OPERATIONS_NB], rtt_per_op[NFS_OPERATIONS_NB], exe_per_op[NFS_OPERATIONS_NB];
 
-	if(0 != c_avl_get(config_mountpoints, m->mountpoint, (void**)&config_item)) {
+	if(0 != c_avl_get(config_mountpoints, m->mountpoint, (void*)&config_item)) {
 		int r;
-		r = c_avl_get(config_mountpoints, "all", (void**)&config_item);
+		r = c_avl_get(config_mountpoints, "all", (void*)&config_item);
 		assert(r == 0);
 	}
 
@@ -900,7 +900,7 @@ static int dispatch_mountstats(mountstats_t *m) /* {{{ */
  * 2nd step, if not found : allocate memory
  * 3rd step : in any case, store the new value into the memory of the old one.
  */
-	if(0 == c_avl_get(mountstats_per_mountpoint, m->mountpoint, (void**)&oldm)) {
+	if(0 == c_avl_get(mountstats_per_mountpoint, m->mountpoint, (void*)&oldm)) {
 		/* if mountpoint was remounted, we do not compute and submit data this time
 		 * However, we already have oldm allocated so we do not need to
 		 * malloc. */
