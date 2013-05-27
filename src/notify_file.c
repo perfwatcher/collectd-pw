@@ -158,8 +158,8 @@ static int notify_file_config (const char *key, const char *value) /* {{{ */
 
 static int notify_file_notify (const notification_t * n, user_data_t __attribute__((unused)) *user_data) /* {{{ */
 {
-        char         filename[512];
-        FILE        *notify_file;
+        char filename[512];
+        gzFile notify_file;
 
         if (ignorelist_match (plugintype_list, n->plugin) != 0)
                 return 0;
