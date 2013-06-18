@@ -151,6 +151,23 @@ static void memory_submit (const char *type_instance, gauge_t value)
 	plugin_dispatch_values (&vl);
 }
 
+static void memory_percent_submit (const char *type_instance, gauge_t value)
+{
+	value_t values[1];
+	value_list_t vl = VALUE_LIST_INIT;
+
+	values[0].gauge = value;
+
+	vl.values = values;
+	vl.values_len = 1;
+	sstrncpy (vl.host, hostname_g, sizeof (vl.host));
+	sstrncpy (vl.plugin, "memory", sizeof (vl.plugin));
+	sstrncpy (vl.type, "percent", sizeof (vl.type));
+	sstrncpy (vl.type_instance, type_instance, sizeof (vl.type_instance));
+
+	plugin_dispatch_values (&vl);
+}
+
 static int memory_read (void)
 {
 #if HAVE_HOST_STATISTICS
@@ -267,7 +284,7 @@ static int memory_read (void)
 	char *fields[8];
 	int numfields;
 
-	long long mem_used = 0;
+	long long mem_total = 0;
 	long long mem_buffered = 0;
 	long long mem_cached = 0;
 	long long mem_free = 0;
@@ -285,7 +302,7 @@ static int memory_read (void)
 		long long *val = NULL;
 
 		if (strncasecmp (buffer, "MemTotal:", 9) == 0)
-			val = &mem_used;
+			val = &mem_total;
 		else if (strncasecmp (buffer, "MemFree:", 8) == 0)
 			val = &mem_free;
 		else if (strncasecmp (buffer, "Buffers:", 8) == 0)
@@ -310,13 +327,19 @@ static int memory_read (void)
 				sstrerror (errno, errbuf, sizeof (errbuf)));
 	}
 
-	if (mem_used >= (mem_free + mem_buffered + mem_cached))
+	if (mem_total >= (mem_free + mem_buffered + mem_cached))
 	{
-		mem_used -= mem_free + mem_buffered + mem_cached;
+		double mem_used_percent;
+		long long mem_used;
+		mem_used = mem_total - (mem_free + mem_buffered + mem_cached);
 		memory_submit ("used",     mem_used);
 		memory_submit ("buffered", mem_buffered);
 		memory_submit ("cached",   mem_cached);
 		memory_submit ("free",     mem_free);
+		if(mem_total > 0) {
+			mem_used_percent = ( (double)mem_used / (double)mem_total ) * 100;
+			memory_percent_submit ("used", mem_used_percent);
+		}
 	}
 /* #endif KERNEL_LINUX */
 
@@ -332,6 +355,7 @@ static int memory_read (void)
 	long long pp_kernel;
 	long long physmem;
 	long long availrmem;
+	double mem_used_percent = 0;
 
 	if (ksp == NULL)
 		return (-1);
@@ -383,6 +407,8 @@ static int memory_read (void)
 		mem_lock = 0;
 	}
 
+	if(physmem > 0) mem_used_percent = ((double)mem_used / (double)physmem) * 100;
+
 	mem_used *= pagesize; /* If this overflows you have some serious */
 	mem_free *= pagesize; /* memory.. Why not call me up and give me */
 	mem_lock *= pagesize; /* some? ;) */
@@ -394,6 +420,7 @@ static int memory_read (void)
 	memory_submit ("locked", mem_lock);
 	memory_submit ("kernel", mem_kern);
 	memory_submit ("unusable", mem_unus);
+	if(physmem > 0) memory_percent_submit ("used", mem_used_percent);
 /* #endif HAVE_LIBKSTAT */
 
 #elif HAVE_SYSCTL
