@@ -1,3 +1,16 @@
+2013-06-18 version 5.3.0-20130618
+
+New patchs :
+- patch/compilation_fix_solaris
+- patch/memory_percent
+
+Update on :
+- patch/protocols_solaris
+- patch/nfs_stats_with_network_plugin
+- patch/fix_interfaces_solaris
+- patch/disk_solaris
+- patch/cpu
+
 2013-05-27 version 5.3.0-20130527
 
 Update on :
