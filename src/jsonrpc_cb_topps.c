@@ -20,6 +20,7 @@
  **/
 
 #include "common.h"
+#include "utils_avltree.h"
 #include "plugin.h"
 #include "jsonrpc.h"
 #include <json/json.h>
@@ -27,6 +28,36 @@
 #define OUTPUT_PREFIX_JSONRPC_CB_TOPPS "JSONRPC plugin (topps) : "
 
 extern char toppsdatadir[];
+
+#define TIMELINE_TIMEOUT_DEFAULT 60
+#define TIMELINE_TIMEOUT_HIGH_VALUE 86400
+
+#define TIMELINE_KEY_MAXLEN 256
+#define TIMELINE_UNAME_MAXLEN 257 /* getconf LOGIN_NAME_MAX returns 256 */
+#define TIMELINE_GNAME_MAXLEN 257
+#define TIMELINE_CMD_MAXLEN 2048
+typedef struct {
+        char key[TIMELINE_KEY_MAXLEN];
+        time_t tm_min;
+        time_t tm_max;
+        pid_t pid;
+        pid_t ppid;
+        uid_t uid;
+        gid_t gid;
+        char uname[TIMELINE_UNAME_MAXLEN];
+        char gname[TIMELINE_GNAME_MAXLEN];
+        char cmd[TIMELINE_CMD_MAXLEN];
+} timeline_ps_item_t;
+
+typedef enum {
+        TIMELINE_READ_FILE_STATUS_OK,
+        TIMELINE_READ_FILE_STATUS_FILE_NOT_FOUND,
+        TIMELINE_READ_FILE_STATUS_AFTER_TIMESTAMP,
+        TIMELINE_READ_FILE_STATUS_SYNTAX_ERROR,
+        TIMELINE_READ_FILE_STATUS_UNKNOWN_VERSION,
+        TIMELINE_READ_FILE_STATUS_ERROR_IN_FILE,
+        TIMELINE_READ_FILE_STATUS_ERROR_CRITICAL
+} timeline_read_file_status_e;
 
 static int mkpath_by_tm_and_num(char *buffer, size_t bufferlen, time_t tm, int n) /* {{{ */
 {
@@ -692,12 +723,615 @@ int jsonrpc_cb_topps_get_top (struct json_object *params, struct json_object *re
         obj =  json_object_new_string("OK");
         json_object_object_add(result_topps_object, "status", obj);
 
-        /* TODO */
-
         /* Last : add the "result" to the result object */
         json_object_object_add(result, "result", result_topps_object);
 
         return(0);
 } /* }}} jsonrpc_cb_topps_get_top */
+
+static int timeline_update_ps(timeline_ps_item_t *new_ps_item, time_t tm, c_avl_tree_t *processes) /* {{{ */
+{
+        /* Returns :
+         * 0 OK and new_ps_item was insered in the tree.
+         * 1 OK and the new_ps_item can be freed or reused.
+         * -1 ERROR
+         */
+        int status = -1;
+        timeline_ps_item_t *ps_item;
+
+        if(0 == c_avl_get(processes, new_ps_item->key, (void*)&ps_item)) {
+                if(tm < ps_item->tm_min) ps_item->tm_min = tm;
+                if(tm > ps_item->tm_max) ps_item->tm_max = tm;
+                status = 1;
+        } else {
+                new_ps_item->tm_min = tm;
+                new_ps_item->tm_max = tm;
+                if(0 == c_avl_insert(processes, new_ps_item->key, new_ps_item)) {
+                        status = 0;
+                } else {
+                        status = -1; /* error */
+                }
+        }
+        return(status);
+} /* }}} timeline_update_ps */
+
+static int parse_line_to_ps_item(char *line, timeline_ps_item_t *ps_item) { /* {{{ */
+        long long int lli;
+        char *ptr1,*ptr2;
+        size_t l;
+
+        ptr1 = line;
+        errno=0;
+#define CONVERT_PTR1_TO_LLI_OR_RETURN do { \
+        lli = strtoll(ptr1, &ptr2, 10); \
+        if(0 != errno) return(1); \
+        if(ptr1 == ptr2) return(1); \
+        if(NULL == ptr2) return(1); \
+        ptr1 = ptr2; \
+        while(ptr1[0] == ' ') ptr1++; \
+} while(0)
+
+        CONVERT_PTR1_TO_LLI_OR_RETURN; ps_item->pid = lli;
+        CONVERT_PTR1_TO_LLI_OR_RETURN; ps_item->ppid = lli;
+        CONVERT_PTR1_TO_LLI_OR_RETURN; ps_item->uid = lli;
+
+        l = strcspn(ptr1, " \t");
+        if(l >= TIMELINE_UNAME_MAXLEN) return(1);
+        memcpy(ps_item->uname, ptr1, l);
+        ps_item->uname[l] = '\0';
+        ptr1 += l;
+        while((ptr1[0] == ' ') || (ptr1[0] == '\t')) ptr1++; 
+
+        CONVERT_PTR1_TO_LLI_OR_RETURN; ps_item->gid = lli;
+
+        l = strcspn(ptr1, " \t");
+        if(l >= TIMELINE_GNAME_MAXLEN) return(1);
+        memcpy(ps_item->gname, ptr1, l);
+        ps_item->gname[l] = '\0';
+        ptr1 += l;
+        while((ptr1[0] == ' ') || (ptr1[0] == '\t')) ptr1++; 
+
+        CONVERT_PTR1_TO_LLI_OR_RETURN; 
+        CONVERT_PTR1_TO_LLI_OR_RETURN; 
+        CONVERT_PTR1_TO_LLI_OR_RETURN; 
+
+        l = strcspn(ptr1, "\r\n");
+        if(l >= TIMELINE_CMD_MAXLEN) l = TIMELINE_CMD_MAXLEN - 1;
+        memcpy(ps_item->cmd, ptr1, l);
+        ps_item->cmd[l] = '\0';
+
+        snprintf(ps_item->key, TIMELINE_KEY_MAXLEN, "%ud %s %s %s", ps_item->pid, ps_item->uname,ps_item->gname,ps_item->cmd);
+
+        return(0);
+} /* }}} parse_line_to_ps_item */
+
+static timeline_read_file_status_e timeline_read_file(const char *filename, time_t timestamp_start, time_t timestamp_end, c_avl_tree_t *processes, time_t *first_tm_in_file, time_t *last_tm_in_file) /* {{{ */
+{
+        gzFile gzfh=NULL;
+        int errnum;
+        char line[4096];
+        timeline_ps_item_t *ps_item = NULL;
+        size_t l;
+
+        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG Trying to open '%s' (%s:%d)", filename, __FILE__, __LINE__);
+        if(NULL == (gzfh = gzopen(filename, "r"))) {
+                return(TIMELINE_READ_FILE_STATUS_FILE_NOT_FOUND);
+        }
+        *first_tm_in_file = 0;
+        *last_tm_in_file = 0;
+        /* Read version */
+        if(NULL == gzgets(gzfh, line, sizeof(line))) {
+                gzclose(gzfh);
+                ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "'%s' : Could not read a line (%s:%d)", filename, __FILE__, __LINE__);
+                return(TIMELINE_READ_FILE_STATUS_ERROR_IN_FILE);
+        }
+        for( l = strlen(line) -1 ; l>0; l--) {
+                if(line[l] == '\n') line[l] = '\0';
+                else if(line[l] == '\r') line[l] = '\0';
+                else break;
+        }
+        if(!strcmp(line, "Version 1.0")) {
+                time_t tm;
+                enum { top_ps_state_tm, top_ps_state_nb_lines, top_ps_state_line } state;
+                long n;
+                long nb_lines;
+                short record_lines = 0;
+                /* Read 2nd line : last tm */
+                if(NULL == gzgets(gzfh, line, sizeof(line))) {
+                        gzclose(gzfh);
+                        ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "'%s' : Could not read a line (%s:%d)", filename, __FILE__, __LINE__);
+                        return(TIMELINE_READ_FILE_STATUS_ERROR_IN_FILE);
+                }
+                /* Check if the last one is the one we want.
+                 * If yes, optimize and remember that when we reach it, we
+                 * record it.
+                 */
+                tm= strtol(line, NULL, 10);
+                if(0 != errno) {
+                        gzclose(gzfh);
+                        ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "'%s' : Could not convert '%s' to integer (%s:%d)", filename, line, __FILE__, __LINE__);
+                        return(TIMELINE_READ_FILE_STATUS_ERROR_CRITICAL);
+                }
+                if(tm < timestamp_start) {
+                        gzclose(gzfh);
+                        return(TIMELINE_READ_FILE_STATUS_OK); /* No process to record here */
+                }
+
+                state = top_ps_state_tm;
+                tm = 0;
+                nb_lines = 0;
+                n = 0;
+                while(NULL != gzgets(gzfh, line, sizeof(line))) {
+                        switch(state) {
+                                case top_ps_state_tm :
+                                        errno=0;
+                                        tm = strtol(line, NULL, 10);
+                                        if(0 != errno) {
+                                                gzclose(gzfh);
+                                                if(NULL != ps_item) free(ps_item);
+                                                ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "'%s' : Could not convert '%s' to integer (%s:%d)", filename, line, __FILE__, __LINE__);
+                                                return(TIMELINE_READ_FILE_STATUS_ERROR_CRITICAL);
+                                        }
+                                        if((tm >= timestamp_start) && (tm <= timestamp_end)) {
+                                                record_lines = 1; /* Start recording. */
+                                                if((tm < *first_tm_in_file) || (*first_tm_in_file == 0)) *first_tm_in_file = tm;
+                                                if(tm > *last_tm_in_file) *last_tm_in_file = tm;
+                                        } else {
+                                                record_lines = 0; /* Not in range : do not record */
+                                        }
+                                        state = top_ps_state_nb_lines;
+                                        break;
+                                case top_ps_state_nb_lines :
+                                        errno=0;
+                                        nb_lines = strtol(line, NULL, 10);
+                                        if(0 != errno) {
+                                                gzclose(gzfh);
+                                                if(NULL != ps_item) free(ps_item);
+                                                ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "'%s' : Could not convert '%s' to integer (%s:%d)", filename, line, __FILE__, __LINE__);
+                                                return(TIMELINE_READ_FILE_STATUS_ERROR_CRITICAL);
+                                        }
+                                        n = 0;
+                                        state = top_ps_state_line;
+                                        break;
+                                case top_ps_state_line :
+                                        if(record_lines) { 
+                                                /* Remove CR and LF at the end of the line */
+                                                if(NULL == ps_item) {
+                                                        if(NULL == (ps_item = malloc(sizeof(*ps_item)))) {
+                                                                gzclose(gzfh);
+                                                                ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "'%s' : Not enough memory while reading '%s' (%s:%d)", filename, line, __FILE__, __LINE__);
+                                                                return(TIMELINE_READ_FILE_STATUS_ERROR_CRITICAL);
+
+                                                        }
+                                                }
+                                                if(0 == parse_line_to_ps_item(line, ps_item)) {
+                                                        int r;
+                                                        r = timeline_update_ps(ps_item, tm, processes);
+                                                        switch(r) {
+                                                                case 0:  /* ps_item was used : we need a new one next time */
+                                                                        ps_item = NULL;
+                                                                        break;
+                                                                case 1: /* nothing to do */
+                                                                        break; 
+                                                                default : /* Something went wrong */
+                                                                        gzclose(gzfh);
+                                                                        if(NULL != ps_item) free(ps_item);
+                                                                        ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "'%s' : Could not convert '%s' to integer (%s:%d)", filename, line, __FILE__, __LINE__);
+                                                                        return(TIMELINE_READ_FILE_STATUS_ERROR_CRITICAL);
+                                                        }
+                                                }
+                                        }
+                                        n++;
+                                        if(n >= nb_lines) {
+                                                state = top_ps_state_tm;
+                                        }
+                                        break;
+                        }
+                }
+                gzerror(gzfh, &errnum);
+                gzclose(gzfh);
+                if(errnum < 0) {
+                        if(NULL != ps_item) free(ps_item);
+                        ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "'%s' : Could not read a line (%s:%d)", filename, __FILE__, __LINE__);
+                        return(TIMELINE_READ_FILE_STATUS_ERROR_IN_FILE);
+                }
+        } else {
+                return(TIMELINE_READ_FILE_STATUS_UNKNOWN_VERSION);
+        }
+
+        if(NULL != ps_item) free(ps_item);
+        return(TIMELINE_READ_FILE_STATUS_OK);
+} /* }}} timeline_read_file */
+
+#define free_avl_tree(tree) do {                                      /* {{{ */                   \
+			c_avl_iterator_t *it;                                                     \
+			it = c_avl_get_iterator(tree);                                            \
+			while (c_avl_iterator_next (it, (void *) &key, (void *) &ps_item) == 0) { \
+					free(ps_item);                                            \
+			}                                                                         \
+			c_avl_iterator_destroy(it);                                               \
+	} while(0) /* }}} free_avl_tree */
+
+static struct json_object *timeline_build( /* {{{ */
+                const char *hostname,
+                time_t timestamp_start,
+                time_t timestamp_end,
+                time_t interval,
+                time_t ignore_short_lived,
+                int ignore_resident,
+                time_t request_tm1,
+                time_t timeout
+                )
+{
+        struct json_object *timeline_array = NULL;
+        char topps_filename_dir[2048];
+        int offset = 0;
+        int status;
+        time_t tm;
+        time_t tm_offset;
+        int n;
+        c_avl_tree_t *processes;
+        c_avl_iterator_t *avl_iter;
+        char *key;
+        timeline_ps_item_t *ps_item;
+        time_t request_tm2;
+        time_t tm_found_first=0;
+        time_t tm_found_last=0;
+
+        /* Build toppsdatadir/hostname directory */
+        if (toppsdatadir != NULL)
+        {
+                status = ssnprintf (topps_filename_dir, sizeof(topps_filename_dir), "%s/", toppsdatadir);
+                if ((status < 1) || (status >= sizeof(topps_filename_dir) )) {
+                        ERROR(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Filename buffer too small (%s:%d)", __FILE__, __LINE__);
+                        return (NULL);
+                }
+                offset += status;
+        }
+        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG toppsdatadir='%s' (%s:%d)", toppsdatadir, __FILE__, __LINE__);
+        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG offset = %d (%s:%d)", offset, __FILE__, __LINE__);
+
+        status = ssnprintf (topps_filename_dir + offset, sizeof(topps_filename_dir) - offset,
+                        "%s/", hostname);
+        if ((status < 1) || (status >= sizeof(topps_filename_dir) - offset)) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Filename buffer too small (%s:%d)", __FILE__, __LINE__);
+                return (NULL);
+        }
+        offset += status;
+        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG offset = %d (%s:%d)", offset, __FILE__, __LINE__);
+
+        /* Create a tree to store the processes */
+        if(NULL == (processes = c_avl_create((void *) strcmp))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Internal error %s:%d", __FILE__, __LINE__);
+                return (NULL);
+        }
+
+        /* Parse ps-*.gz files */
+        tm = 10000* ((int)(timestamp_start/10000));
+        tm_offset = 10000* (1+(int)(interval/10000));
+        n = 0;
+        request_tm2 = time(NULL);
+        while((tm <= timestamp_end) && ((request_tm2-request_tm1) < timeout)) {
+                time_t first_tm_in_file=0;
+                time_t last_tm_in_file=0;
+                timeline_read_file_status_e read_file_status;
+                if(mkpath_by_tm_and_num(topps_filename_dir + offset, sizeof(topps_filename_dir) - offset,tm, n)) {
+                        free_avl_tree(processes);
+                        c_avl_destroy(processes);
+                        return (NULL);
+                }
+                read_file_status = timeline_read_file(topps_filename_dir, timestamp_start, timestamp_end, processes, &first_tm_in_file, &last_tm_in_file);
+                switch (read_file_status) {
+                        case TIMELINE_READ_FILE_STATUS_OK: /* OK */
+                        case TIMELINE_READ_FILE_STATUS_UNKNOWN_VERSION: /* unknown version (same as OK but we ignore what could not be read of that specific file) */
+                        case TIMELINE_READ_FILE_STATUS_ERROR_IN_FILE: /* unknown error in the file (same as OK but we ignore what could not be read of that specific file) */
+                        case TIMELINE_READ_FILE_STATUS_SYNTAX_ERROR: /* syntax error (same as OK but we ignore what could not be read of that specific file) */
+                                if((first_tm_in_file > 0) && (((tm_found_first == 0) || (first_tm_in_file < tm_found_first)))) tm_found_first = first_tm_in_file;
+                                if(last_tm_in_file > tm_found_last) tm_found_last = last_tm_in_file; /* No need to test if last_tm_in_file == 0 of course ! */
+                                if(interval >= 10000) {
+                                        tm += tm_offset;
+                                } else {
+                                        n += 1;
+                                }
+                                break;
+                        case TIMELINE_READ_FILE_STATUS_FILE_NOT_FOUND: /* file not found */
+                                n=0;
+                                tm += tm_offset;
+                                break;
+                        case TIMELINE_READ_FILE_STATUS_AFTER_TIMESTAMP: /* after timestamp : should stop here */
+                                tm = timestamp_end + 1; /* leave the loop */
+                                break;
+                        default: /* error */
+                                free_avl_tree(processes);
+                                c_avl_destroy(processes);
+                                return (NULL);
+                }
+                request_tm2 = time(NULL);
+        }
+
+        /* Create a new array for the returned result */
+        if(NULL == (timeline_array = json_object_new_array())) {
+                ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a new JSON array (%s:%d)",  __FILE__, __LINE__);
+                free_avl_tree(processes);
+                c_avl_destroy(processes);
+                return(NULL);
+        }
+        if((request_tm2-request_tm1) >= timeout) {
+                free_avl_tree(processes);
+                c_avl_destroy(processes);
+                return(NULL);
+        }
+        ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG (%s:%d) : tm_found_first = %ld / tm_found_last = %ld",  __FILE__, __LINE__, tm_found_first,tm_found_last);
+
+        /* Analyze the "processes" avl tree and fill the result array */
+        avl_iter = c_avl_get_iterator(processes);
+        while (c_avl_iterator_next (avl_iter, (void *) &key, (void *) &ps_item) == 0) {
+                struct json_object *hash_obj;
+                struct json_object *obj;
+
+                /* Ignore short lived processes */
+                if((ps_item->tm_max - ps_item->tm_min) < ignore_short_lived) continue;
+
+                /* Ignore resident processes (processes that lived all the time we are checking */
+                if(ignore_resident && (ps_item->tm_min <= tm_found_first) && (ps_item->tm_max >= tm_found_last)) continue;
+
+                if(NULL == (hash_obj = json_object_new_object())) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json object (%s:%d)", __FILE__, __LINE__);
+                        goto timeline_build_array_failure_g;
+                }
+
+                if(NULL == (obj = json_object_new_int(ps_item->tm_min))) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json int (%s:%d)", __FILE__, __LINE__);
+                        goto timeline_build_array_failure_g;
+                }
+                json_object_object_add(hash_obj, "start", obj);
+
+                if(NULL == (obj = json_object_new_int(ps_item->tm_max))) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json int (%s:%d)", __FILE__, __LINE__);
+                        goto timeline_build_array_failure_g;
+                }
+                json_object_object_add(hash_obj, "end", obj);
+
+                if(NULL == (obj = json_object_new_int(ps_item->pid))) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json int (%s:%d)", __FILE__, __LINE__);
+                        goto timeline_build_array_failure_g;
+                }
+                json_object_object_add(hash_obj, "pid", obj);
+
+                if(NULL == (obj = json_object_new_int(ps_item->ppid))) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json int (%s:%d)", __FILE__, __LINE__);
+                        goto timeline_build_array_failure_g;
+                }
+                json_object_object_add(hash_obj, "ppid", obj);
+
+                if(NULL == (obj = json_object_new_int(ps_item->uid))) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json int (%s:%d)", __FILE__, __LINE__);
+                        goto timeline_build_array_failure_g;
+                }
+                json_object_object_add(hash_obj, "uid", obj);
+
+                if(NULL == (obj = json_object_new_string(ps_item->uname))) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json string (%s:%d)", __FILE__, __LINE__);
+                        goto timeline_build_array_failure_g;
+                }
+                json_object_object_add(hash_obj, "uname", obj);
+
+                if(NULL == (obj = json_object_new_int(ps_item->gid))) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json int (%s:%d)", __FILE__, __LINE__);
+                        goto timeline_build_array_failure_g;
+                }
+                json_object_object_add(hash_obj, "gid", obj);
+
+                if(NULL == (obj = json_object_new_string(ps_item->gname))) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json string (%s:%d)", __FILE__, __LINE__);
+                        goto timeline_build_array_failure_g;
+                }
+                json_object_object_add(hash_obj, "gname", obj);
+
+                if(NULL == (obj = json_object_new_string(ps_item->cmd))) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json string (%s:%d)", __FILE__, __LINE__);
+                        goto timeline_build_array_failure_g;
+                }
+                json_object_object_add(hash_obj, "cmd", obj);
+
+                json_object_array_add(timeline_array,hash_obj);
+        }
+        c_avl_iterator_destroy(avl_iter);
+        free_avl_tree(processes);
+        c_avl_destroy(processes);
+
+        return(timeline_array);
+
+timeline_build_array_failure_g:
+        c_avl_iterator_destroy(avl_iter);
+        free_avl_tree(processes);
+        c_avl_destroy(processes);
+        json_object_put(timeline_array);
+        return (NULL);
+} /* }}} timeline_build */
+
+int jsonrpc_cb_topps_get_timeline (struct json_object *params, struct json_object *result, const char **errorstring) /* {{{ */
+{
+        /*
+         * { params : { "hostname" : "<a host name>",
+         *              "start_tm"  : <a timestamp where to start the timeline>,
+         *              "end_tm"    : <a timestamp where to start the timeline>,
+         *              "interval"  : <approximative nb of seconds between 2 top ps files>
+         *              "ignore_short_lived" : <nb of seconds. Ignore process if they lived to short>
+         *              "ignore_resident" : <bool : ignore processes that were running before tm_start and after tm_end>
+         *              "timeout"   : <approximative max nb of seconds to spend on this request>
+         *            }
+         * }
+         *
+         * Return :
+         * { result : { "status" : "OK" or "TIMEOUT" or "some string message if not found",
+         *              "timeline" : [ {
+         *                             'start': tm,
+         *                             'end': tm,
+         *                             'pid': pid,
+         *                             'ppid': ppid,
+         *                             'uid': uid,
+         *                             'uname': 'user name',
+         *                             'gid': gid,
+         *                             'gname': 'group name',
+         *                             'cmd': 'command',
+         *                             },
+         *                             { ... }, { ... }, ...
+         *                           ]
+         *            }
+         * }
+         *
+         * Note : tm_start should be lower than tm_end.
+         * Note : interval is approximative and will rounded to lower 10000
+         * - if interval == 0, check all ps-*-*.gz files
+         * - if interval > 10000, check only ps-*-0.gz files
+         *
+         */
+        struct json_object *obj;
+        struct json_object *result_topps_object;
+        int param_timestamp_start=0;
+        int param_timestamp_end=0;
+        int param_interval=0;
+        int param_ignore_short_lived=0;
+        json_bool param_ignore_resident=0;
+        const char *param_hostname = NULL;
+        time_t param_timeout = TIMELINE_TIMEOUT_DEFAULT;
+        time_t request_tm1;
+        time_t request_tm2;
+
+        request_tm1 = time(NULL);
+        /* Parse the params */
+        if(!json_object_is_type (params, json_type_object)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        /* Params : get the "start_tm" timestamp */
+        if(NULL == (obj = json_object_object_get(params, "start_tm"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_int)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        errno = 0;
+        param_timestamp_start = json_object_get_int(obj);
+        if(errno != 0) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        /* Params : get the "end_tm" timestamp */
+        if(NULL == (obj = json_object_object_get(params, "end_tm"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_int)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        errno = 0;
+        param_timestamp_end = json_object_get_int(obj);
+        if(errno != 0) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        /* Params : get the "hostname" */
+        if(NULL == (obj = json_object_object_get(params, "hostname"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_string)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        errno = 0;
+        if(NULL == (param_hostname = json_object_get_string(obj))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(errno != 0) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        /* Params : get the "interval" timestamp */
+        if(NULL == (obj = json_object_object_get(params, "interval"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_int)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        errno = 0;
+        param_interval = json_object_get_int(obj);
+        if(errno != 0) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+
+        /* Params : get the "ignore_short_lived" timestamp */
+        if(NULL == (obj = json_object_object_get(params, "ignore_short_lived"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_int)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        errno = 0;
+        param_ignore_short_lived = json_object_get_int(obj);
+        if(errno != 0) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+
+        /* Params : get the "ignore_resident" flag */
+        if(NULL == (obj = json_object_object_get(params, "ignore_resident"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_boolean)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        errno = 0;
+        param_ignore_resident = json_object_get_boolean(obj);
+        if(errno != 0) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+
+        /* Params : get the "timeout" nb of seconds */
+        if(NULL == (obj = json_object_object_get(params, "timeout"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_int)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        errno = 0;
+        param_timeout = json_object_get_int(obj);
+        if(errno != 0) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+
+        /* Check args */
+        if(0 == param_timestamp_start) { return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS); }
+        if(0 == param_timestamp_end) { return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS); }
+        if(NULL == param_hostname) { return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS); }
+        if(param_timestamp_start >= param_timestamp_end) { return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS); }
+        if(param_timeout == 0) param_timeout = TIMELINE_TIMEOUT_HIGH_VALUE; /* Some way to say no timeout */
+
+        /* Check the servers and build the result array */
+        if(NULL == (result_topps_object = json_object_new_object())) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Could not create a json array");
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        if(NULL == (obj = timeline_build(
+                        /* hostname           = */ param_hostname,
+                        /* start_tm           = */ param_timestamp_start,
+                        /* end_tm             = */ param_timestamp_end,
+                        /* interval           = */ param_interval, 
+                        /* ignore_short_lived = */ param_ignore_short_lived, 
+                        /* ignore_resident    = */ param_ignore_resident,
+                        /* request_tm1        = */ request_tm1,
+                        /* timeout            = */ param_timeout
+                        ))) {
+                obj =  json_object_new_string("Something went wrong");
+                json_object_object_add(result_topps_object, "status", obj);
+                json_object_object_add(result, "result", result_topps_object);
+                return(0);
+        }
+        json_object_object_add(result_topps_object, "timeline", obj);
+        request_tm2 = time(NULL);
+        obj =  json_object_new_string(((request_tm2-request_tm1) > param_timeout)?"TIMEOUT":"OK");
+        json_object_object_add(result_topps_object, "status", obj);
+
+        /* Last : add the "result" to the result object */
+        json_object_object_add(result, "result", result_topps_object);
+
+        return(0);
+} /* }}} jsonrpc_cb_topps_get_timeline */
 
 /* vim: set fdm=marker sw=8 ts=8 tw=78 et : */
