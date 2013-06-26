@@ -1061,7 +1061,6 @@ static struct json_object *timeline_build( /* {{{ */
                 c_avl_destroy(processes);
                 return(NULL);
         }
-        ERROR (OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG (%s:%d) : tm_found_first = %ld / tm_found_last = %ld",  __FILE__, __LINE__, tm_found_first,tm_found_last);
 
         /* Analyze the "processes" avl tree and fill the result array */
         avl_iter = c_avl_get_iterator(processes);
