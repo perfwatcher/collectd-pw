@@ -172,7 +172,7 @@ static int notify_file_notify (const notification_t * n, user_data_t __attribute
         if (check_create_dir (filename))
                 return (-1);
 
-        notify_file = gzopen (filename, "w+");
+        notify_file = gzopen (filename, "w");
         if (notify_file == NULL)
         {
                 char errbuf[1024];
