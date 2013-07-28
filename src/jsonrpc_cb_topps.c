@@ -439,6 +439,7 @@ static struct json_object *read_top_ps_file(const char *filename, int tm, short 
                  * If yes, optimize and remember that when we reach it, we
                  * record it.
                  */
+                errno=0;
                 tm_last = strtol(line, NULL, 10);
                 if(0 != errno) {
                         gzclose(gzfh);
@@ -846,6 +847,7 @@ static timeline_read_file_status_e timeline_read_file(const char *filename, time
                  * If yes, optimize and remember that when we reach it, we
                  * record it.
                  */
+                errno=0;
                 tm= strtol(line, NULL, 10);
                 if(0 != errno) {
                         gzclose(gzfh);
