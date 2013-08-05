@@ -249,11 +249,11 @@ static int wt_chunk_write_to_disk(wt_chunk_t *ch) { /* {{{ */
 	if (check_create_dir (filename))
 		return (-1);
 
-	gfd = gzopen (filename, "w+");
+	gfd = gzopen (filename, "w");
 	if (NULL == gfd)
 	{
 		char errbuf[1024];
-		ERROR ("notify_file plugin: gzopen (%s) failed: %s", filename,
+		ERROR ("write_top plugin: gzopen (%s) failed: %s", filename,
 				sstrerror (errno, errbuf, sizeof (errbuf)));
 		return (-1);
 	}
