@@ -23,8 +23,10 @@
 #define JSONRPC_CB_TOPPS_H
 
 #define JSONRPC_CB_TABLE_TOPPS \
-	{ "topps_get_top",   jsonrpc_cb_topps_get_top  },
+	{ "topps_get_top",        jsonrpc_cb_topps_get_top       }, \
+	{ "topps_get_timeline",   jsonrpc_cb_topps_get_timeline  },
 
 int jsonrpc_cb_topps_get_top (struct json_object *params, struct json_object *result, const char **errorstring);
+int jsonrpc_cb_topps_get_timeline (struct json_object *params, struct json_object *result, const char **errorstring);
 
 #endif /* JSONRPC_CB_TABLE_TOPPS_H */
