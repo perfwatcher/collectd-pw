@@ -1465,7 +1465,8 @@ dist_man_MANS = collectd.1 \
 
 #collectd_1_SOURCES = collectd.pod
 
-EXTRA_DIST = types.db types-perfwatcher.db pinba.proto
+EXTRA_DIST = types.db
+EXTRA_DIST += types-perfwatcher.db
 
 EXTRA_DIST +=   collectd.conf.pod \
 		collectd-basic_aggregator.pod \
