@@ -1,0 +1,26 @@
+2013-08-30 version 5.4.0-20130830
+
+Include patchs :
+
+- patch/compilation_fix_solaris
+- patch/config_rra_in_rrdcached_plugin
+- patch/cpu
+- patch/disk_solaris
+- patch/fix_for_large_MaxPacketSize
+- patch/fix_interfaces_solaris
+- patch/logfile
+- patch/memory_percent
+- patch/nfs_stats_with_network_plugin
+- patch/notification_forwarding
+- patch/perfwatcher_addons
+- patch/process
+- patch/protocols_solaris
+- plugin/basic_aggregator
+- plugin/jsonrpc
+- plugin/notify_file
+- plugin/sysconfig
+- plugin/top
+- plugin/write_top
+
+
+Sources from upstream collectd (branch collectd-5.4 commit f6b9d3b2d95a140eaf9537cae08069b6856684b2)
