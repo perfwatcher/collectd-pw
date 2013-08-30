@@ -84,7 +84,8 @@ static const char *config_keys[] =
 	"RRATimespan",
 	"XFF",
 	"WritesPerSecond",
-	"RandomTimeout"
+	"RandomTimeout",
+	"RRA"
 };
 static int config_keys_num = STATIC_ARRAY_SIZE (config_keys);
 
@@ -102,6 +103,9 @@ static rrdcreate_config_t rrdcreate_config =
 
 	/* timespans = */ NULL,
 	/* timespans_num = */ 0,
+
+	/* rra_types = */ NULL,
+	/* rra_types_num = */ 0,
 
 	/* consolidation_functions = */ NULL,
 	/* consolidation_functions_num = */ 0,
@@ -1141,6 +1145,13 @@ static int rrd_config (const char *key, const char *value)
 		{
 			random_timeout = DOUBLE_TO_CDTIME_T (tmp);
 		}
+	}
+	else if (strcasecmp ("RRA", key) == 0)
+        {
+			if(NULL != value) {
+				if(0 != cu_rrd_rra_types_set(&rrdcreate_config, value))
+					return(-1);
+			}
 	}
 	else
 	{
