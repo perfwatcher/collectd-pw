@@ -27,7 +27,7 @@
 #include <zlib.h>
 #define OUTPUT_PREFIX_JSONRPC_CB_TOPPS "JSONRPC plugin (topps) : "
 
-extern char toppsdatadir[];
+extern char jsonrpc_toppsdatadir[];
 
 #define TIMELINE_TIMEOUT_DEFAULT 60
 #define TIMELINE_TIMEOUT_HIGH_VALUE 86400
@@ -156,8 +156,8 @@ check_if_file_contains_tm_read_failed:
 static int check_path(const char *hostname, int tm_start, int tm_end, char *buffer, size_t bufferlen) /* {{{ */
 {
         /* Path syntax where timestamp = AABBCCDDDD :
-         * ${toppsdatadir}/${hostname}/AA/AABB/AABBCC0000-X.gz
-         * Checking path means testing that the ${toppsdatadir}/${hostname}/AA/AABB directory exists.
+         * ${jsonrpc_toppsdatadir}/${hostname}/AA/AABB/AABBCC0000-X.gz
+         * Checking path means testing that the ${jsonrpc_toppsdatadir}/${hostname}/AA/AABB directory exists.
          * If not, check with tm_margin.
          *
          * Start at tm_start. If tm_end < tm_start, search backward.
@@ -181,16 +181,16 @@ static int check_path(const char *hostname, int tm_start, int tm_end, char *buff
         short watchdog;
         int search_direction;
 
-        if (toppsdatadir != NULL)
+        if (jsonrpc_toppsdatadir != NULL)
         {
-                status = ssnprintf (buffer, bufferlen, "%s/", toppsdatadir);
+                status = ssnprintf (buffer, bufferlen, "%s/", jsonrpc_toppsdatadir);
                 if ((status < 1) || (status >= bufferlen )) {
                         ERROR(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Filename buffer too small (%s:%d)", __FILE__, __LINE__);
                         return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
                 }
                 offset += status;
         }
-        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG toppsdatadir='%s' (%s:%d)", toppsdatadir, __FILE__, __LINE__);
+        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG jsonrpc_toppsdatadir='%s' (%s:%d)", jsonrpc_toppsdatadir, __FILE__, __LINE__);
         DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG offset = %d (%s:%d)", offset, __FILE__, __LINE__);
 
         status = ssnprintf (buffer + offset, bufferlen - offset,
@@ -980,17 +980,17 @@ static struct json_object *timeline_build( /* {{{ */
         time_t tm_found_first=0;
         time_t tm_found_last=0;
 
-        /* Build toppsdatadir/hostname directory */
-        if (toppsdatadir != NULL)
+        /* Build jsonrpc_toppsdatadir/hostname directory */
+        if (jsonrpc_toppsdatadir != NULL)
         {
-                status = ssnprintf (topps_filename_dir, sizeof(topps_filename_dir), "%s/", toppsdatadir);
+                status = ssnprintf (topps_filename_dir, sizeof(topps_filename_dir), "%s/", jsonrpc_toppsdatadir);
                 if ((status < 1) || (status >= sizeof(topps_filename_dir) )) {
                         ERROR(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "Filename buffer too small (%s:%d)", __FILE__, __LINE__);
                         return (NULL);
                 }
                 offset += status;
         }
-        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG toppsdatadir='%s' (%s:%d)", toppsdatadir, __FILE__, __LINE__);
+        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG jsonrpc_toppsdatadir='%s' (%s:%d)", jsonrpc_toppsdatadir, __FILE__, __LINE__);
         DEBUG(OUTPUT_PREFIX_JSONRPC_CB_TOPPS "DEBUG offset = %d (%s:%d)", offset, __FILE__, __LINE__);
 
         status = ssnprintf (topps_filename_dir + offset, sizeof(topps_filename_dir) - offset,
