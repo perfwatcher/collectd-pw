@@ -20,6 +20,9 @@
  *   Cyril Feraudet <cyril at feraudet dot com>
  **/
 
+#include <sys/types.h>
+#include <dirent.h>
+
 #include "utils_avltree.h"
 #include "utils_cache.h"
 #include "common.h"
@@ -28,7 +31,9 @@
 #include <json/json.h>
 #define OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "JSONRPC plugin (perfwatcher) : "
 
-int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *result, const char **errorstring) {
+extern char jsonrpc_datadir[];
+
+int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
 		struct json_object *obj;
 		struct json_object *result_servers_object;
 		c_avl_tree_t *servers;
@@ -190,8 +195,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 		free(servers_status);
 
 		return(0);
-}
-
+} /* }}} jsonrpc_cb_pw_get_status */
 
 #define free_avl_tree_keys(tree) do {                                             \
 			c_avl_iterator_t *it;                                                 \
@@ -202,7 +206,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 			c_avl_iterator_destroy(it);                                           \
 	} while(0)
 
-int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *result, const char **errorstring) {
+int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
 		struct json_object *result_metrics_array;
 		c_avl_tree_t *servers;
 		c_avl_tree_t *metrics;
@@ -344,5 +348,268 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 		c_avl_destroy(metrics);
 
 		return(0);
-}
+} /* }}} jsonrpc_cb_pw_get_metric */
 
+static int get_dir_files_into_resultobject(const char *path, struct json_object *resultobject) { /* {{{ */
+        DIR *dh;
+        struct dirent *f;
+        struct dirent *fr;
+        int r;
+        size_t len;
+        size_t nb;
+        struct json_object *array;
+        struct json_object *obj;
+
+        /* Allocate the dirent structure */
+        len = offsetof(struct dirent, d_name) + pathconf(path, _PC_NAME_MAX) + 1;
+        if(NULL == (f = malloc(len))) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory");
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        /* Open the datadir directory */
+        if(NULL == (dh = opendir(path))) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not open datadir '%s'", path);
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                free(f);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        /* Create the array of values */
+        if(NULL == (array = json_object_new_array())) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json array");
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                closedir(dh);
+                free(f);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        /* Append the contents of the datadir directory to the array */
+        nb = 0;
+        while((0 == (r = readdir_r(dh, f ,&fr))) && (NULL != fr)) {
+                if(0 == strcmp(f->d_name, ".")) continue;
+                if(0 == strcmp(f->d_name, "..")) continue;
+                if(NULL == (obj = json_object_new_string(f->d_name))) {
+                        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
+                        json_object_put(array);
+                        closedir(dh);
+                        free(f);
+                        return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                }
+                json_object_array_add(array,obj);
+                nb += 1;
+        }
+        closedir(dh);
+        free(f);
+        /* Check if something went wrong */
+        if(0 != r) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not read a directory entry in datadir");
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                json_object_put(array);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        json_object_object_add(resultobject, "values", array);
+
+        /* Insert the nb of values in the result object */
+        if(NULL == (obj = json_object_new_int((int)nb))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+        json_object_object_add(resultobject, "nb", obj);
+
+        return(0);
+} /* }}} get_dir_files_into_resultobject */
+
+int jsonrpc_cb_pw_get_dir_hosts (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
+        int r;
+        struct json_object *resultobject;
+
+        *errorstring = NULL;
+
+        /* Create the result object */
+        if(NULL == (resultobject = json_object_new_object())) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        /* Read the datadir directory */
+        r = get_dir_files_into_resultobject(jsonrpc_datadir[0]?jsonrpc_datadir:".", resultobject);
+        if(0 != r) {
+                json_object_put(resultobject);
+                return(r);
+        }
+
+        /* Last : add the "result" to the result object */
+        json_object_object_add(result, "result", resultobject);
+
+        return(0);
+} /* }}} jsonrpc_cb_pw_get_dir_hosts */
+
+int jsonrpc_cb_pw_get_dir_plugins (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
+        struct json_object *obj;
+        char *path;
+        const char *str;
+        size_t l, l1, l2;
+        int r;
+        struct json_object *resultobject;
+
+        /* Parse the params */
+        if(!json_object_is_type (params, json_type_object)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        /* Params : get the "hostname" */
+        if(NULL == (obj = json_object_object_get(params, "hostname"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_string)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(NULL == (str = json_object_get_string(obj))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        /* Parse the hostname */
+        if(NULL != strchr(str, '/')) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Found a '/' in parameter");
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if((0 == strcmp(str, ".")) || (0 == strcmp(str, ".."))) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "'%s' is not a hostname", str);
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+
+        /* Create the path variable */
+        l1 = strlen(jsonrpc_datadir[0]?jsonrpc_datadir:".");
+        l2 = strlen(str);
+        l = l1 + l2 + 2;
+        if(NULL == (path = malloc(l * sizeof(*path)))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+        memcpy(path, jsonrpc_datadir[0]?jsonrpc_datadir:".", l1);
+        path[l1] = '/';
+        memcpy(path+l1+1, str, l2+1);
+
+        /* Create the result object */
+        if(NULL == (resultobject = json_object_new_object())) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                free(path);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        /* Read the 'path' directory */
+        r = get_dir_files_into_resultobject(path, resultobject);
+        free(path);
+        if(0 != r) {
+                json_object_put(resultobject);
+                return(r);
+        }
+
+        /* Last : add the "result" to the result object */
+        json_object_object_add(result, "result", resultobject);
+
+        return(0);
+} /* }}} jsonrpc_cb_pw_get_dir_plugins */
+
+int jsonrpc_cb_pw_get_dir_types (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
+        struct json_object *obj;
+        char *path;
+        const char *str_hostname;
+        const char *str_plugins;
+        size_t l, l1, l2, l3;
+        int r;
+        struct json_object *resultobject;
+
+        /* Parse the params */
+        if(!json_object_is_type (params, json_type_object)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        /* Params : get the "hostname" */
+        if(NULL == (obj = json_object_object_get(params, "hostname"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_string)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(NULL == (str_hostname = json_object_get_string(obj))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        /* Params : get the "plugins" */
+        if(NULL == (obj = json_object_object_get(params, "plugin"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_string)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(NULL == (str_plugins = json_object_get_string(obj))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        /* Parse the hostname */
+        if(NULL != strchr(str_hostname, '/')) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Found a '/' in parameter");
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if((0 == strcmp(str_hostname, ".")) || (0 == strcmp(str_hostname, ".."))) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "'%s' is not a hostname", str_hostname);
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+
+        /* Parse the plugins */
+        if(NULL != strchr(str_plugins, '/')) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Found a '/' in parameter");
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if((0 == strcmp(str_plugins, ".")) || (0 == strcmp(str_plugins, ".."))) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "'%s' is not a plugin(-instance)", str_plugins);
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+
+        /* Create the path variable */
+        l1 = strlen(jsonrpc_datadir[0]?jsonrpc_datadir:".");
+        l2 = strlen(str_hostname);
+        l3 = strlen(str_plugins);
+        l = l1 + l2 + l3 + 3;
+        if(NULL == (path = malloc(l * sizeof(*path)))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+        memcpy(path, jsonrpc_datadir[0]?jsonrpc_datadir:".", l1);
+        path[l1] = '/';
+        memcpy(path+l1+1, str_hostname, l2);
+        path[l1+l2+1] = '/';
+        memcpy(path+l1+l2+2, str_plugins, l3+1);
+
+        /* Create the result object */
+        if(NULL == (resultobject = json_object_new_object())) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                free(path);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        /* Read the 'path' directory */
+        r = get_dir_files_into_resultobject(path, resultobject);
+        free(path);
+        if(0 != r) {
+                json_object_put(resultobject);
+                return(r);
+        }
+
+        /* Last : add the "result" to the result object */
+        json_object_object_add(result, "result", resultobject);
+
+        return(0);
+} /* }}} jsonrpc_cb_pw_get_dir_types */
+
+/* vim: set fdm=marker sw=8 ts=8 tw=78 et : */
