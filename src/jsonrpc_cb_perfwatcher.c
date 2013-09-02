@@ -33,6 +33,17 @@
 
 extern char jsonrpc_datadir[];
 
+/* JSONRPC EXAMPLE SYNTAX for "pw_get_status" {{{
+   {
+       "jsonrpc": "2.0",
+       "method" : "pw_get_status",
+       "params": { 
+                    "timeout" : 240,
+                    "server"  : [ "<list>", "<of>", "<hostnames>" ]
+                 },
+       "id": 3
+   }
+}}} */
 int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
 		struct json_object *obj;
 		struct json_object *result_servers_object;
@@ -206,6 +217,14 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 			c_avl_iterator_destroy(it);                                           \
 	} while(0)
 
+/* JSONRPC EXAMPLE SYNTAX for "pw_get_metric" {{{
+   {
+       "jsonrpc": "2.0",
+       "method" : "pw_get_metric",
+       "params": [ "<list>", "<of>", "<hostnames>" ],
+       "id": 3
+   }
+}}} */
 int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
 		struct json_object *result_metrics_array;
 		c_avl_tree_t *servers;
@@ -424,6 +443,14 @@ static int get_dir_files_into_resultobject(const char *path, struct json_object 
         return(0);
 } /* }}} get_dir_files_into_resultobject */
 
+/* JSONRPC EXAMPLE SYNTAX for "pw_get_dir_hosts" {{{
+   {
+       "jsonrpc": "2.0",
+       "method" : "pw_get_dir_hosts",
+       "params": "<some hostname>",
+       "id": 3
+   }
+}}} */
 int jsonrpc_cb_pw_get_dir_hosts (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
         int r;
         struct json_object *resultobject;
@@ -450,6 +477,14 @@ int jsonrpc_cb_pw_get_dir_hosts (struct json_object *params, struct json_object 
         return(0);
 } /* }}} jsonrpc_cb_pw_get_dir_hosts */
 
+/* JSONRPC EXAMPLE SYNTAX for "pw_get_dir_plugins" {{{
+   {
+       "jsonrpc": "2.0",
+       "method" : "pw_get_dir_plugins",
+       "params": { "hostname" : "<some hostname>" },
+       "id": 3
+   }
+}}} */
 int jsonrpc_cb_pw_get_dir_plugins (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
         struct json_object *obj;
         char *path;
@@ -518,6 +553,14 @@ int jsonrpc_cb_pw_get_dir_plugins (struct json_object *params, struct json_objec
         return(0);
 } /* }}} jsonrpc_cb_pw_get_dir_plugins */
 
+/* JSONRPC EXAMPLE SYNTAX for "pw_get_dir_types" {{{
+   {
+       "jsonrpc": "2.0",
+       "method" : "pw_get_dir_types",
+       "params": { "hostname" : "<some hostname>", "plugin" : "<a plugin or a plugin-instance>" },
+       "id": 3
+   }
+}}} */
 int jsonrpc_cb_pw_get_dir_types (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
         struct json_object *obj;
         char *path;
