@@ -441,6 +441,7 @@ AC_CHECK_HEADERS(linux/ethtool.h,
 #if HAVE_LINUX_SOCKIOS_H
 # include <linux/sockios.h>
 #endif
+#include <linux/types.h>
     ])
 
 # For ipvs module
