@@ -380,6 +380,7 @@ fi
 
 # For load module
 # For the processes plugin
+# For the netstat plugin
 # For users module
 AC_CHECK_HEADERS(sys/loadavg.h linux/config.h utmp.h utmpx.h)
 
@@ -4773,6 +4774,7 @@ plugin_nfs="no"
 plugin_numa="no"
 plugin_perl="no"
 plugin_processes="no"
+plugin_procnetstat="no"
 plugin_protocols="no"
 plugin_serial="no"
 plugin_swap="no"
@@ -4807,6 +4809,7 @@ then
 	plugin_nfs="yes"
 	plugin_numa="yes"
 	plugin_processes="yes"
+	plugin_procnetstat="yes"
 	plugin_protocols="yes"
 	plugin_serial="yes"
 	plugin_swap="yes"
@@ -4865,6 +4868,7 @@ fi
 if test "x$with_procinfo" = "xyes"
 then
 	plugin_processes="yes"
+	plugin_procnetstat="yes"
 fi
 
 # Solaris
@@ -5147,6 +5151,7 @@ AC_PLUGIN([ping],        [$with_liboping],     [Network latency statistics])
 AC_PLUGIN([postgresql],  [$with_libpq],        [PostgreSQL database statistics])
 AC_PLUGIN([powerdns],    [yes],                [PowerDNS statistics])
 AC_PLUGIN([processes],   [$plugin_processes],  [Process statistics])
+AC_PLUGIN([procnetstat], [$plugin_procnetstat],[Network per process statistics])
 AC_PLUGIN([protocols],   [$plugin_protocols],  [Protocol (IP, TCP, ...) statistics])
 AC_PLUGIN([python],      [$with_python],       [Embed a Python interpreter])
 AC_PLUGIN([redis],       [$with_libcredis],    [Redis plugin])
@@ -5489,6 +5494,7 @@ Configuration:
     postgresql  . . . . . $enable_postgresql
     powerdns  . . . . . . $enable_powerdns
     processes . . . . . . $enable_processes
+    procnetstat . . . . . $enable_procnetstat
     protocols . . . . . . $enable_protocols
     python  . . . . . . . $enable_python
     redis . . . . . . . . $enable_redis

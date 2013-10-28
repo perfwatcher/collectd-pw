@@ -4754,6 +4754,36 @@ slashes.
 
 =back
 
+=head2 Plugin C<procnetstat>
+
+=over 4
+
+=item B<Process> I<Name>
+
+Select more detailed statistics of processes matching this name. The statistics
+collected for these selected processes are size of the resident segment size
+(RSS), user- and system-time used, number of processes and number of threads,
+io data (where available) and minor and major pagefaults.
+
+=item B<ProcessMatch> I<name> I<regex> I<ip> I<port>
+
+Gather statistics for processes matching the specified I<regex> for the network
+socket opened on I<ip>:I<port>.
+
+The statistics are Recv and Transmit queues, as seen with C<netstat -natp | egrep regex>
+
+I<name> is the name (or prefix) of the metric. It should not contain slashes. It should
+be empty.
+I<regex> is a regex to match some processes (see L<regex(7)> for details). If empty,
+statistics are on all processes opening a socket on I<ip>:I<port>.
+I<ip> is a string in the form x.x.x.x for IPv4 addresses or in the form x:x:x:x:x:x:x:x
+for IPv6 addresses (see L<inet_pton(3)> for more information). If empty, statistics are 
+on any IP the matched processes work with.
+I<port> is a number to match a port number. If nul, statistics are on any port the
+matched processes work with.
+
+=back
+
 =head2 Plugin C<protocols>
 
 Collects a lot of information about various network protocols, such as I<IP>,

@@ -996,6 +996,15 @@ processes_la_LIBADD += -lkvm
 endif
 endif
 
+if BUILD_PLUGIN_PROCNETSTAT
+pkglib_LTLIBRARIES += procnetstat.la
+procnetstat_la_SOURCES = procnetstat.c
+procnetstat_la_LDFLAGS = -module -avoid-version
+procnetstat_la_LIBADD =
+collectd_LDADD += "-dlopen" procnetstat.la
+collectd_DEPENDENCIES += procnetstat.la
+endif
+
 if BUILD_PLUGIN_PROTOCOLS
 pkglib_LTLIBRARIES += protocols.la
 protocols_la_SOURCES = protocols.c
