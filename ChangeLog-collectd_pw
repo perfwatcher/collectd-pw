@@ -1,3 +1,9 @@
+2013-10-29 version 5.3.0-20131029
+
+Update on :
+
+- plugin/basic_aggregator
+
 2013-09-11 version 5.3.0-20130911
 
 New patchs :
@@ -6,6 +12,7 @@ New patchs :
 Update on :
 
 - patch/perfwatcher_addons
+- plugin/jsonrpc
 
 2013-08-29 version 5.3.0-20130829
 
