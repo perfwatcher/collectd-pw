@@ -1,3 +1,17 @@
+2013-10-29 version 5.4.0-20131029
+
+New patchs :
+- compilation_fix/ethstat
+
+New plugins :
+- plugin/procnetstat
+
+Update on :
+
+- plugin/basic_aggregator
+- plugin/jsonrpc
+- patch/perfwatcher_addons
+
 2013-08-30 version 5.4.0-20130830
 
 Include patchs :
