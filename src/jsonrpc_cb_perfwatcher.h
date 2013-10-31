@@ -28,12 +28,14 @@
 	{ "pw_get_metric",       jsonrpc_cb_pw_get_metric       }, \
 	{ "pw_get_dir_hosts",    jsonrpc_cb_pw_get_dir_hosts    }, \
 	{ "pw_get_dir_plugins",  jsonrpc_cb_pw_get_dir_plugins  }, \
-	{ "pw_get_dir_types",    jsonrpc_cb_pw_get_dir_types    },
+	{ "pw_get_dir_types",    jsonrpc_cb_pw_get_dir_types    }, \
+	{ "pw_get_dir_all_rrds_for_host", jsonrpc_cb_pw_get_dir_all_rrds_for_host },
 
 int jsonrpc_cb_pw_get_status      (struct json_object *params, struct json_object *result, const char **errorstring);
 int jsonrpc_cb_pw_get_metric      (struct json_object *params, struct json_object *result, const char **errorstring);
 int jsonrpc_cb_pw_get_dir_hosts   (struct json_object *params, struct json_object *result, const char **errorstring);
 int jsonrpc_cb_pw_get_dir_plugins (struct json_object *params, struct json_object *result, const char **errorstring);
 int jsonrpc_cb_pw_get_dir_types   (struct json_object *params, struct json_object *result, const char **errorstring);
+int jsonrpc_cb_pw_get_dir_all_rrds_for_host   (struct json_object *params, struct json_object *result, const char **errorstring);
 
 #endif /* JSONRPC_CB_PERFWATCHER_H */
