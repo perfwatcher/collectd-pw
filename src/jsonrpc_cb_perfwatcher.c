@@ -551,6 +551,11 @@ static int get_dir_rrd_contents_into_resultobject(const char *path, struct json_
                 memcpy(current_path_filename, f->d_name, l+1);
                 if(0 != stat(current_path, &statbuf)) continue;
                 memcpy(current_filename, f->d_name, l+1);
+                if((level > 1) && (!strcmp(current_filename+l-4, ".rrd"))) {
+                        /* Check for .rrd extension and remove it. */
+                        l -= 4;
+                        current_filename[l] = '\0';
+                }
                 instance = strchr(current_filename, '-');
                 if(instance) {
                         instance[0] = '\0';
