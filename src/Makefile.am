@@ -532,6 +532,8 @@ jsonrpc_la_SOURCES += jsonrpc_cb_base.c jsonrpc_cb_base.h
 endif
 if BUILD_JSONRPC_USE_PERFWATCHER
 jsonrpc_la_SOURCES += jsonrpc_cb_perfwatcher.c jsonrpc_cb_perfwatcher.h
+jsonrpc_la_CFLAGS += $(BUILD_WITH_LIBRRD_CFLAGS)
+jsonrpc_la_LIBADD += $(BUILD_WITH_LIBRRD_LDFLAGS)
 endif
 if BUILD_JSONRPC_USE_TOPPS
 jsonrpc_la_SOURCES += jsonrpc_cb_topps.c jsonrpc_cb_topps.h

@@ -29,27 +29,45 @@
 #include "plugin.h"
 #include "jsonrpc.h"
 #include <json/json.h>
+#include <rrd.h>
 #define OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "JSONRPC plugin (perfwatcher) : "
 
 extern char jsonrpc_datadir[];
 
-static int new_path_hostname(const char *hostname, char **path) { /* {{{ */
+#define RETURN_IF_WRONG_PARAMS_TYPE(params, type) do { \
+        if(!json_object_is_type ((params), (type))) { \
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS); \
+        } \
+} while(0)
+
+/* #define JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT {{{ */
+#define JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(gototarget) do { \
+        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object"); \
+        DEBUG( OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__); \
+        goto gototarget; \
+} while(0)
+/* }}} */
+
+
+static int jsonrpc_datadir_append_string(const char *string, char **path, int is_hostname) { /* {{{ */
         size_t l, l1, l2;
 
         *path = NULL;
-        /* Parse the hostname */
-        if(NULL != strchr(hostname, '/')) {
-                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Found a '/' in parameter");
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        /* Parse the string */
+        if(is_hostname) {
+                if(NULL != strchr(string, '/')) {
+                        ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Found a '/' in parameter");
+                        return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+                }
         }
-        if((0 == strcmp(hostname, ".")) || (0 == strcmp(hostname, ".."))) {
-                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "'%s' is not a hostname", hostname);
+        if((0 == strcmp(string, ".")) || (0 == strcmp(string, ".."))) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "'%s' should not be '.' or '..'", string);
                 return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
         }
 
         /* Create the path variable */
         l1 = strlen(jsonrpc_datadir[0]?jsonrpc_datadir:".");
-        l2 = strlen(hostname);
+        l2 = strlen(string);
         l = l1 + l2 + 2;
         if(NULL == (*path = malloc(l * sizeof(*path)))) {
                 DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
@@ -57,10 +75,24 @@ static int new_path_hostname(const char *hostname, char **path) { /* {{{ */
         }
         memcpy(*path, jsonrpc_datadir[0]?jsonrpc_datadir:".", l1);
         (*path)[l1] = '/';
-        memcpy(*path+l1+1, hostname, l2+1);
+        memcpy(*path+l1+1, string, l2+1);
 
         return(0);
-} /* }}} new_path_hostname */
+} /* }}} jsonrpc_datadir_append_string */
+
+static const char *jsonrpc_cb_get_param_string(struct json_object *params, char *key) { /* {{{ */
+        const char *str = NULL;
+        struct json_object *obj = NULL;
+
+        /* Params : get the value for the given key */
+        if(NULL == (obj = json_object_object_get(params, key))) return(NULL);
+        if(!json_object_is_type (obj, json_type_string)) return(NULL);
+        if(NULL == (str = json_object_get_string(obj))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return(NULL);
+        }
+        return(str);
+} /* }}} jsonrpc_cb_get_param_string */
 
 /* JSONRPC EXAMPLE SYNTAX for "pw_get_status" {{{
    {
@@ -74,167 +106,164 @@ static int new_path_hostname(const char *hostname, char **path) { /* {{{ */
    }
 }}} */
 int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
-		struct json_object *obj;
-		struct json_object *result_servers_object;
-		c_avl_tree_t *servers;
-		cdtime_t *servers_status;
-		cdtime_t now_before_timeout;
-		cdtime_t *status_ptr;
-		int timeout;
-		struct array_list *al;
-		struct json_object *server_array;
-		int array_len;
-		size_t i;
-		char **names = NULL;
-		cdtime_t *times = NULL;
-		size_t number = 0;
-		int cache_id;
-		c_avl_iterator_t *avl_iter;
-		char *key;
-		char *buffer=NULL;
-		int buffer_len = 0;
+        struct json_object *obj;
+        struct json_object *result_servers_object;
+        c_avl_tree_t *servers;
+        cdtime_t *servers_status;
+        cdtime_t now_before_timeout;
+        cdtime_t *status_ptr;
+        int timeout;
+        struct array_list *al;
+        struct json_object *server_array;
+        int array_len;
+        size_t i;
+        char **names = NULL;
+        cdtime_t *times = NULL;
+        size_t number = 0;
+        int cache_id;
+        c_avl_iterator_t *avl_iter;
+        char *key;
+        char *buffer=NULL;
+        int buffer_len = 0;
+
+        /* Parse the params */
+        RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_object);
+
+        /* Params : get the "timeout" */
+        if(NULL == (obj = json_object_object_get(params, "timeout"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (obj, json_type_int)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        errno = 0;
+        timeout = json_object_get_int(obj);
+        if(errno != 0) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        /* Params : get the "server" array
+         * and fill the server tree and the servers_status array
+         */
+        if(NULL == (server_array = json_object_object_get(params, "server"))) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+        if(!json_object_is_type (server_array, json_type_array)) {
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+
+        if(NULL == (servers = c_avl_create((void *) strcmp))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+        al = json_object_get_array(server_array);
+        assert(NULL != al);
+        array_len = json_object_array_length (server_array);
+        if(NULL == (servers_status = malloc(array_len * sizeof(*servers_status)))) {
+                c_avl_destroy(servers);
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+        for(i=0; i<array_len; i++) {
+                struct json_object *element;
+                const char *str;
+                servers_status[i] = 0;
+                element = json_object_array_get_idx(server_array, i);
+                assert(NULL != element);
+                if(!json_object_is_type (element, json_type_string)) {
+                        c_avl_destroy(servers);
+                        free(servers_status);
+                        return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+                }
+                if(NULL == (str = json_object_get_string(element))) {
+                        c_avl_destroy(servers);
+                        free(servers_status);
+                        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                        return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+
+                }
+                c_avl_insert(servers, (void*)str, &(servers_status[i]));
+        }
+        /* Get the names */
+        cache_id = jsonrpc_cache_last_entry_find_and_ref (&names, &times, &number);
+        if (cache_id == -1)
+        {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "uc_get_names failed with status %i", cache_id);
+                c_avl_destroy(servers);
+                free(servers_status);
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        /* Parse the cache and update the servers_status array*/
+        for (i = 0; i < number; i++) {
+                size_t j;
+
+                for(j=0; names[i][j] && names[i][j] != '/'; j++);
+                if(j>= buffer_len) {
+                        if(NULL == (buffer = realloc(buffer, j+1024))) {
+                                c_avl_destroy(servers);
+                                free(servers_status);
+                                jsonrpc_cache_entry_unref(cache_id);
+                                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                        }
+                        buffer_len = j+1024;
+                }
+                memcpy(buffer, names[i],j);
+                buffer[j] = '\0';
+
+                if(0 == c_avl_get(servers, buffer, (void *) &status_ptr)) {
+                        if(times[i] > *status_ptr) *status_ptr = times[i];
+                }
+        }
+        jsonrpc_cache_entry_unref(cache_id);
+        if(buffer) free(buffer);
+
+        /* What time is it ? */
+        now_before_timeout = cdtime();
+        now_before_timeout -= (TIME_T_TO_CDTIME_T(timeout));
 
 
+        /* Check the servers and build the result array */
+        if(NULL == (result_servers_object = json_object_new_object())) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json array");
+                c_avl_destroy(servers);
+                free(servers_status);
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
 
-		/* Parse the params */
-		if(!json_object_is_type (params, json_type_object)) {
-				return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-		}
-		/* Params : get the "timeout" */
-		if(NULL == (obj = json_object_object_get(params, "timeout"))) {
-				return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-		}
-		if(!json_object_is_type (obj, json_type_int)) {
-				return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-		}
-		errno = 0;
-		timeout = json_object_get_int(obj);
-		if(errno != 0) {
-				return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-		}
-		/* Params : get the "server" array
-		 * and fill the server tree and the servers_status array
-		 */
-		if(NULL == (server_array = json_object_object_get(params, "server"))) {
-				return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-		}
-		if(!json_object_is_type (server_array, json_type_array)) {
-				return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-		}
-
-		if(NULL == (servers = c_avl_create((void *) strcmp))) {
-				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-		}
-		al = json_object_get_array(server_array);
-		assert(NULL != al);
-		array_len = json_object_array_length (server_array);
-		if(NULL == (servers_status = malloc(array_len * sizeof(*servers_status)))) {
-				c_avl_destroy(servers);
-				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-		}
-		for(i=0; i<array_len; i++) {
-				struct json_object *element;
-				const char *str;
-				servers_status[i] = 0;
-				element = json_object_array_get_idx(server_array, i);
-				assert(NULL != element);
-				if(!json_object_is_type (element, json_type_string)) {
-						c_avl_destroy(servers);
-						free(servers_status);
-						return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-				}
-				if(NULL == (str = json_object_get_string(element))) {
-						c_avl_destroy(servers);
-						free(servers_status);
-						DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-						return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-
-				}
-				c_avl_insert(servers, (void*)str, &(servers_status[i]));
-		}
-		/* Get the names */
-		cache_id = jsonrpc_cache_last_entry_find_and_ref (&names, &times, &number);
-		if (cache_id == -1)
-		{
-				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "uc_get_names failed with status %i", cache_id);
-				c_avl_destroy(servers);
-				free(servers_status);
-				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-		}
-
-		/* Parse the cache and update the servers_status array*/
-		for (i = 0; i < number; i++) {
-				size_t j;
-
-				for(j=0; names[i][j] && names[i][j] != '/'; j++);
-				if(j>= buffer_len) {
-						if(NULL == (buffer = realloc(buffer, j+1024))) {
-								c_avl_destroy(servers);
-								free(servers_status);
-								jsonrpc_cache_entry_unref(cache_id);
-								DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-								return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-						}
-						buffer_len = j+1024;
-				}
-				memcpy(buffer, names[i],j);
-				buffer[j] = '\0';
-
-				if(0 == c_avl_get(servers, buffer, (void *) &status_ptr)) {
-						if(times[i] > *status_ptr) *status_ptr = times[i];
-				}
-		}
-		jsonrpc_cache_entry_unref(cache_id);
-		if(buffer) free(buffer);
-
-		/* What time is it ? */
-		now_before_timeout = cdtime();
-		now_before_timeout -= (TIME_T_TO_CDTIME_T(timeout));
+        /* Append the values to the array */
+        avl_iter = c_avl_get_iterator(servers);
+        while (c_avl_iterator_next (avl_iter, (void *) &key, (void *) &status_ptr) == 0) {
+                if(*status_ptr == 0) {
+                        obj =  json_object_new_string("unknown");
+                } else if(*status_ptr > now_before_timeout) {
+                        obj =  json_object_new_string("up");
+                } else {
+                        obj =  json_object_new_string("down");
+                }
 
 
-		/* Check the servers and build the result array */
-		if(NULL == (result_servers_object = json_object_new_object())) {
-				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json array");
-				c_avl_destroy(servers);
-				free(servers_status);
-				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-		}
+                if(NULL == obj) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json string");
+                        c_avl_iterator_destroy(avl_iter);
+                        json_object_put(result_servers_object);
+                        c_avl_destroy(servers);
+                        free(servers_status);
+                        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                        return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                }
+                json_object_object_add(result_servers_object, key, obj);
+        }
+        c_avl_iterator_destroy(avl_iter);
 
-		/* Append the values to the array */
-		avl_iter = c_avl_get_iterator(servers);
-		while (c_avl_iterator_next (avl_iter, (void *) &key, (void *) &status_ptr) == 0) {
-				if(*status_ptr == 0) {
-						obj =  json_object_new_string("unknown");
-				} else if(*status_ptr > now_before_timeout) {
-						obj =  json_object_new_string("up");
-				} else {
-						obj =  json_object_new_string("down");
-				}
+        /* Last : add the "result" to the result object */
+        json_object_object_add(result, "result", result_servers_object);
+        c_avl_destroy(servers);
+        free(servers_status);
 
-
-				if(NULL == obj) {
-						DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json string");
-						c_avl_iterator_destroy(avl_iter);
-						json_object_put(result_servers_object);
-						c_avl_destroy(servers);
-						free(servers_status);
-						DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-						return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-				}
-				json_object_object_add(result_servers_object, key, obj);
-		}
-		c_avl_iterator_destroy(avl_iter);
-
-		/* Last : add the "result" to the result object */
-		json_object_object_add(result, "result", result_servers_object);
-		c_avl_destroy(servers);
-		free(servers_status);
-
-		return(0);
+        return(0);
 } /* }}} jsonrpc_cb_pw_get_status */
 
 #define free_avl_tree_keys(tree) do {                                             \
@@ -255,147 +284,145 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
    }
 }}} */
 int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
-		struct json_object *result_metrics_array;
-		c_avl_tree_t *servers;
-		c_avl_tree_t *metrics;
+        struct json_object *result_metrics_array;
+        c_avl_tree_t *servers;
+        c_avl_tree_t *metrics;
 
-		struct array_list *al;
-		int array_len;
-		size_t i;
-		char **names = NULL;
-		cdtime_t *times = NULL;
-		size_t number = 0;
-		int cache_id;
-		c_avl_iterator_t *avl_iter;
-		char *key;
-		void *useless_var;
-		char *buffer=NULL;
-		int buffer_len = 0;
+        struct array_list *al;
+        int array_len;
+        size_t i;
+        char **names = NULL;
+        cdtime_t *times = NULL;
+        size_t number = 0;
+        int cache_id;
+        c_avl_iterator_t *avl_iter;
+        char *key;
+        void *useless_var;
+        char *buffer=NULL;
+        int buffer_len = 0;
 
-		/* Parse the params */
-		if(!json_object_is_type (params, json_type_array)) {
-				return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-		}
+        /* Parse the params */
+        RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_array);
 
-		if(NULL == (servers = c_avl_create((void *) strcmp))) {
-				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-		}
-		if(NULL == (metrics = c_avl_create((void *) strcmp))) {
-				c_avl_destroy(servers);
-				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-		}
-		al = json_object_get_array(params);
-		assert(NULL != al);
-		array_len = json_object_array_length (params);
-		for(i=0; i<array_len; i++) {
-				struct json_object *element;
-				const char *str;
-				element = json_object_array_get_idx(params, i);
-				assert(NULL != element);
-				if(!json_object_is_type (element, json_type_string)) {
-						c_avl_destroy(servers);
-						c_avl_destroy(metrics);
-						return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-				}
-				if(NULL == (str = json_object_get_string(element))) {
-						c_avl_destroy(servers);
-						c_avl_destroy(metrics);
-						DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-						return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        if(NULL == (servers = c_avl_create((void *) strcmp))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+        if(NULL == (metrics = c_avl_create((void *) strcmp))) {
+                c_avl_destroy(servers);
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+        al = json_object_get_array(params);
+        assert(NULL != al);
+        array_len = json_object_array_length (params);
+        for(i=0; i<array_len; i++) {
+                struct json_object *element;
+                const char *str;
+                element = json_object_array_get_idx(params, i);
+                assert(NULL != element);
+                if(!json_object_is_type (element, json_type_string)) {
+                        c_avl_destroy(servers);
+                        c_avl_destroy(metrics);
+                        return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+                }
+                if(NULL == (str = json_object_get_string(element))) {
+                        c_avl_destroy(servers);
+                        c_avl_destroy(metrics);
+                        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                        return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 
-				}
-				c_avl_insert(servers, (void*)str, (void*)NULL);
-		}
-		/* Get the names */
-		cache_id = jsonrpc_cache_last_entry_find_and_ref (&names, &times, &number);
-		if (cache_id == -1)
-		{
-				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "uc_get_names failed with status %i", cache_id);
-				c_avl_destroy(servers);
-				c_avl_destroy(metrics);
-				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-		}
+                }
+                c_avl_insert(servers, (void*)str, (void*)NULL);
+        }
+        /* Get the names */
+        cache_id = jsonrpc_cache_last_entry_find_and_ref (&names, &times, &number);
+        if (cache_id == -1)
+        {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "uc_get_names failed with status %i", cache_id);
+                c_avl_destroy(servers);
+                c_avl_destroy(metrics);
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
 
-		/* Parse the cache and update the metrics list */
-		for (i = 0; i < number; i++) {
-				size_t j;
+        /* Parse the cache and update the metrics list */
+        for (i = 0; i < number; i++) {
+                size_t j;
 
-				for(j=0; names[i][j] && names[i][j] != '/'; j++);
-				assert(names[i][j] != '\0');
-				if(j>= buffer_len) {
-						if(NULL == (buffer = realloc(buffer, j+1024))) {
-								c_avl_destroy(servers);
-								free_avl_tree_keys(metrics);
-								c_avl_destroy(metrics);
-								jsonrpc_cache_entry_unref(cache_id);
-								DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-								return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-						}
-						buffer_len = j+1024;
-				}
-				memcpy(buffer, names[i],j);
-				buffer[j] = '\0';
+                for(j=0; names[i][j] && names[i][j] != '/'; j++);
+                assert(names[i][j] != '\0');
+                if(j>= buffer_len) {
+                        if(NULL == (buffer = realloc(buffer, j+1024))) {
+                                c_avl_destroy(servers);
+                                free_avl_tree_keys(metrics);
+                                c_avl_destroy(metrics);
+                                jsonrpc_cache_entry_unref(cache_id);
+                                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                        }
+                        buffer_len = j+1024;
+                }
+                memcpy(buffer, names[i],j);
+                buffer[j] = '\0';
 
-				if(
-								(0 == c_avl_get(servers, buffer, NULL)) /* if the name is in the list */
-								&& (0 != c_avl_get(metrics, names[i]+j+1, NULL)) /* and if the metric is NOT already known */
-				  ) {
-						char *m;
-						if(NULL == (m = strdup(names[i]+j+1))) {
-								c_avl_destroy(servers);
-								free_avl_tree_keys(metrics);
-								c_avl_destroy(metrics);
-								jsonrpc_cache_entry_unref(cache_id);
-								if(buffer) free(buffer);
-								DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-								return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                if(
+                                (0 == c_avl_get(servers, buffer, NULL)) /* if the name is in the list */
+                                && (0 != c_avl_get(metrics, names[i]+j+1, NULL)) /* and if the metric is NOT already known */
+                  ) {
+                        char *m;
+                        if(NULL == (m = strdup(names[i]+j+1))) {
+                                c_avl_destroy(servers);
+                                free_avl_tree_keys(metrics);
+                                c_avl_destroy(metrics);
+                                jsonrpc_cache_entry_unref(cache_id);
+                                if(buffer) free(buffer);
+                                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
 
-						}
-						c_avl_insert(metrics, (void*)m, (void*)NULL);
-				}
-		}
-		jsonrpc_cache_entry_unref(cache_id);
-		if(buffer) free(buffer);
+                        }
+                        c_avl_insert(metrics, (void*)m, (void*)NULL);
+                }
+        }
+        jsonrpc_cache_entry_unref(cache_id);
+        if(buffer) free(buffer);
 
-		/* Check the servers and build the result array */
-		if(NULL == (result_metrics_array = json_object_new_array())) {
-				DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json array");
-				c_avl_destroy(servers);
-				free_avl_tree_keys(metrics);
-				c_avl_destroy(metrics);
-				DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-				return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-		}
+        /* Check the servers and build the result array */
+        if(NULL == (result_metrics_array = json_object_new_array())) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json array");
+                c_avl_destroy(servers);
+                free_avl_tree_keys(metrics);
+                c_avl_destroy(metrics);
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
 
-		/* Append the values to the array */
-		avl_iter = c_avl_get_iterator(metrics);
-		while (c_avl_iterator_next (avl_iter, (void *) &key, (void *) &useless_var) == 0) {
-				struct json_object *obj;
+        /* Append the values to the array */
+        avl_iter = c_avl_get_iterator(metrics);
+        while (c_avl_iterator_next (avl_iter, (void *) &key, (void *) &useless_var) == 0) {
+                struct json_object *obj;
 
-				if(NULL == (obj =  json_object_new_string(key))) {
-						DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json string");
-						c_avl_iterator_destroy(avl_iter);
-						json_object_put(result_metrics_array);
-						c_avl_destroy(servers);
-						free_avl_tree_keys(metrics);
-						c_avl_destroy(metrics);
-						DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-						return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-				}
-				json_object_array_add(result_metrics_array,obj);
-		}
-		c_avl_iterator_destroy(avl_iter);
+                if(NULL == (obj =  json_object_new_string(key))) {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json string");
+                        c_avl_iterator_destroy(avl_iter);
+                        json_object_put(result_metrics_array);
+                        c_avl_destroy(servers);
+                        free_avl_tree_keys(metrics);
+                        c_avl_destroy(metrics);
+                        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                        return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                }
+                json_object_array_add(result_metrics_array,obj);
+        }
+        c_avl_iterator_destroy(avl_iter);
 
-		/* Last : add the "result" to the result object */
-		json_object_object_add(result, "result", result_metrics_array);
-		c_avl_destroy(servers);
-		free_avl_tree_keys(metrics);
-		c_avl_destroy(metrics);
+        /* Last : add the "result" to the result object */
+        json_object_object_add(result, "result", result_metrics_array);
+        c_avl_destroy(servers);
+        free_avl_tree_keys(metrics);
+        c_avl_destroy(metrics);
 
-		return(0);
+        return(0);
 } /* }}} jsonrpc_cb_pw_get_metric */
 
 static int get_dir_files_into_resultobject(const char *path, struct json_object *resultobject) { /* {{{ */
@@ -658,52 +685,49 @@ int jsonrpc_cb_pw_get_dir_hosts (struct json_object *params, struct json_object 
    }
 }}} */
 int jsonrpc_cb_pw_get_dir_plugins (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
-        struct json_object *obj;
-        char *path;
-        const char *str;
-        int r;
-        struct json_object *resultobject;
+        char *path = NULL;
+        const char *str = NULL;
+        int r, rc;
+        struct json_object *resultobject = NULL;
 
         /* Parse the params */
-        if(!json_object_is_type (params, json_type_object)) {
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-        }
-        /* Params : get the "hostname" */
-        if(NULL == (obj = json_object_object_get(params, "hostname"))) {
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-        }
-        if(!json_object_is_type (obj, json_type_string)) {
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-        }
-        if(NULL == (str = json_object_get_string(obj))) {
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
-        }
+        RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_object);
 
-        if(0 != (r = new_path_hostname(str, &path))) {
+        /* Params : get the "hostname" */
+        if(NULL == (str = jsonrpc_cb_get_param_string(params, "hostname")))
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+        goto jsonrpc_cb_pw_get_dir_plugins__any_error;
+
+        if(0 != (r = jsonrpc_datadir_append_string(str, &path, 1))) {
+                rc = r;
+                goto jsonrpc_cb_pw_get_dir_plugins__any_error;
                 return(r);
         }
 
         /* Create the result object */
         if(NULL == (resultobject = json_object_new_object())) {
-                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                free(path);
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_get_dir_plugins__internal_error);
         }
 
         /* Read the 'path' directory */
         r = get_dir_files_into_resultobject(path, resultobject);
         free(path);
+        path = NULL;
         if(0 != r) {
-                json_object_put(resultobject);
-                return(r);
+                rc = r;
+                goto jsonrpc_cb_pw_get_dir_plugins__any_error;
         }
 
         /* Last : add the "result" to the result object */
         json_object_object_add(result, "result", resultobject);
 
         return(0);
+jsonrpc_cb_pw_get_dir_plugins__internal_error:
+        rc = JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR;
+jsonrpc_cb_pw_get_dir_plugins__any_error:
+        if(resultobject) json_object_put(resultobject);
+        if(path) free(path);
+        return(rc);
 } /* }}} jsonrpc_cb_pw_get_dir_plugins */
 
 /* JSONRPC EXAMPLE SYNTAX for "pw_get_dir_types" {{{
@@ -715,60 +739,51 @@ int jsonrpc_cb_pw_get_dir_plugins (struct json_object *params, struct json_objec
    }
 }}} */
 int jsonrpc_cb_pw_get_dir_types (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
-        struct json_object *obj;
-        char *path;
-        const char *str_hostname;
-        const char *str_plugins;
+        char *path = NULL;
+        const char *str_hostname = NULL;
+        const char *str_plugins = NULL;
         size_t l, l1, l2, l3;
-        int r;
-        struct json_object *resultobject;
+        int r, rc;
+        struct json_object *resultobject = NULL;
 
         /* Parse the params */
-        if(!json_object_is_type (params, json_type_object)) {
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-        }
+        RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_object);
+
         /* Params : get the "hostname" */
-        if(NULL == (obj = json_object_object_get(params, "hostname"))) {
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-        }
-        if(!json_object_is_type (obj, json_type_string)) {
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-        }
-        if(NULL == (str_hostname = json_object_get_string(obj))) {
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+
+        if(NULL == (str_hostname = jsonrpc_cb_get_param_string(params, "hostname"))) {
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto jsonrpc_cb_pw_get_dir_types__any_error;
         }
 
         /* Params : get the "plugins" */
-        if(NULL == (obj = json_object_object_get(params, "plugin"))) {
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-        }
-        if(!json_object_is_type (obj, json_type_string)) {
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-        }
-        if(NULL == (str_plugins = json_object_get_string(obj))) {
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        if(NULL == (str_plugins = jsonrpc_cb_get_param_string(params, "plugin"))) {
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto jsonrpc_cb_pw_get_dir_types__any_error;
         }
 
         /* Parse the hostname */
         if(NULL != strchr(str_hostname, '/')) {
                 ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Found a '/' in parameter");
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto jsonrpc_cb_pw_get_dir_types__any_error;
         }
         if((0 == strcmp(str_hostname, ".")) || (0 == strcmp(str_hostname, ".."))) {
                 ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "'%s' is not a hostname", str_hostname);
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto jsonrpc_cb_pw_get_dir_types__any_error;
         }
 
         /* Parse the plugins */
         if(NULL != strchr(str_plugins, '/')) {
                 ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Found a '/' in parameter");
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto jsonrpc_cb_pw_get_dir_types__any_error;
         }
         if((0 == strcmp(str_plugins, ".")) || (0 == strcmp(str_plugins, ".."))) {
                 ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "'%s' is not a plugin(-instance)", str_plugins);
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto jsonrpc_cb_pw_get_dir_types__any_error;
         }
 
         /* Create the path variable */
@@ -778,7 +793,7 @@ int jsonrpc_cb_pw_get_dir_types (struct json_object *params, struct json_object 
         l = l1 + l2 + l3 + 3;
         if(NULL == (path = malloc(l * sizeof(*path)))) {
                 DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                goto jsonrpc_cb_pw_get_dir_types__internal_error;
         }
         memcpy(path, jsonrpc_datadir[0]?jsonrpc_datadir:".", l1);
         path[l1] = '/';
@@ -788,24 +803,28 @@ int jsonrpc_cb_pw_get_dir_types (struct json_object *params, struct json_object 
 
         /* Create the result object */
         if(NULL == (resultobject = json_object_new_object())) {
-                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                free(path);
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_get_dir_types__internal_error);
         }
 
         /* Read the 'path' directory */
         r = get_dir_files_into_resultobject(path, resultobject);
         free(path);
+        path = NULL;
         if(0 != r) {
-                json_object_put(resultobject);
-                return(r);
+                rc = r;
+                goto jsonrpc_cb_pw_get_dir_types__any_error;
         }
 
         /* Last : add the "result" to the result object */
         json_object_object_add(result, "result", resultobject);
 
         return(0);
+jsonrpc_cb_pw_get_dir_types__internal_error:
+        rc = JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR;
+jsonrpc_cb_pw_get_dir_types__any_error:
+        if(resultobject) json_object_put(resultobject);
+        if(path) free(path);
+        return(rc);
 } /* }}} jsonrpc_cb_pw_get_dir_types */
 
 /* JSONRPC EXAMPLE SYNTAX for "pw_get_dir_all_rrds_for_host" {{{
@@ -822,7 +841,6 @@ int jsonrpc_cb_pw_get_dir_all_rrds_for_host (struct json_object *params, struct 
         struct json_object *resultobject = NULL;
         struct json_object *obj_rrds = NULL;
         struct json_object *obj_nb = NULL;
-        struct json_object *obj = NULL;
         char *path = NULL;
         const char *str;
         size_t nb;
@@ -830,41 +848,27 @@ int jsonrpc_cb_pw_get_dir_all_rrds_for_host (struct json_object *params, struct 
         *errorstring = NULL;
 
         /* Parse the params */
-        if(!json_object_is_type (params, json_type_object)) {
-                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
-                goto jsonrpc_cb_pw_get_dir_all_rrds_for_host__any_error;
-        }
+        RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_object);
+
         /* Params : get the "hostname" */
-        if(NULL == (obj = json_object_object_get(params, "hostname"))) {
+        if(NULL == (str = jsonrpc_cb_get_param_string(params, "hostname"))) {
                 rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
                 goto jsonrpc_cb_pw_get_dir_all_rrds_for_host__any_error;
-        }
-        if(!json_object_is_type (obj, json_type_string)) {
-                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
-                goto jsonrpc_cb_pw_get_dir_all_rrds_for_host__any_error;
-        }
-        if(NULL == (str = json_object_get_string(obj))) {
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                goto jsonrpc_cb_pw_get_dir_all_rrds_for_host__internal_error;
         }
 
-        if(0 != (r = new_path_hostname(str, &path))) {
+        if(0 != (r = jsonrpc_datadir_append_string(str, &path, 1))) {
                 rc = r;
                 goto jsonrpc_cb_pw_get_dir_all_rrds_for_host__any_error;
         }
 
         /* Create the result object */
         if(NULL == (resultobject = json_object_new_object())) {
-                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                goto jsonrpc_cb_pw_get_dir_all_rrds_for_host__internal_error;
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_get_dir_all_rrds_for_host__internal_error);
         }
 
         /* Create the rrds object */
         if(NULL == (obj_rrds = json_object_new_object())) {
-                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                goto jsonrpc_cb_pw_get_dir_all_rrds_for_host__internal_error;
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_get_dir_all_rrds_for_host__internal_error);
         }
 
         nb = 0;
@@ -877,9 +881,7 @@ int jsonrpc_cb_pw_get_dir_all_rrds_for_host (struct json_object *params, struct 
 
         /* Insert the nb of values in the result object */
         if(NULL == (obj_nb = json_object_new_int((int)nb))) {
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_get_dir_all_rrds_for_host__internal_error);
         }
         json_object_object_add(resultobject, "nb", obj_nb);
 
@@ -897,4 +899,157 @@ jsonrpc_cb_pw_get_dir_all_rrds_for_host__any_error:
         return(rc);
 } /* }}} jsonrpc_cb_pw_get_dir_all_rrds_for_host */
 
+/* JSONRPC EXAMPLE SYNTAX for "pw_rrd_info" {{{
+   {
+       "jsonrpc": "2.0",
+       "method" : "pw_rrd_info",
+       "params": { "rrdfile" : "<some host/plugin-instance/type-instance.rrd filename>" },
+       "id": 3
+   }
+}}} */
+int jsonrpc_cb_pw_rrd_info (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
+        int rc;
+        int r;
+        rrd_info_t *rrdinfo_data = NULL;
+        rrd_info_t *p = NULL;
+        struct json_object *resultobject = NULL;
+        struct json_object *obj_ds = NULL;
+        struct json_object *obj_rra = NULL;
+        struct json_object *obj_rrd = NULL;
+        char *path = NULL;
+        const char *str;
+        char *keybuffer = NULL;
+        int keybuffer_size = 0;;
+
+        *errorstring = NULL;
+
+        /* Parse the params */
+        RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_object);
+
+        /* Params : get the "hostname" */
+        if(NULL == (str = jsonrpc_cb_get_param_string(params, "rrdfile"))) {
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto jsonrpc_cb_pw_rrd_info__any_error;
+        }
+
+        if(0 != (r = jsonrpc_datadir_append_string(str, &path, 0))) {
+                rc = r;
+                goto jsonrpc_cb_pw_rrd_info__any_error;
+        }
+
+        if(NULL == (rrdinfo_data = rrd_info_r(path))) {
+                ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not open and parse '%s'", path);
+                goto jsonrpc_cb_pw_rrd_info__internal_error;
+        }
+
+        /* Create the result object */
+        if(NULL == (resultobject = json_object_new_object())) {
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_info__internal_error);
+        }
+
+        for(p=rrdinfo_data; p; p = p->next) {
+                char *key_instance;
+                int l;
+                int offset = 0;
+                struct json_object *obj = NULL;
+                struct json_object *obj_infoval = NULL;
+                struct json_object *obj_instance = NULL;
+                if(!strncmp(p->key, "ds[", 3)) {
+                        offset = 3;
+                        if((NULL == obj_ds) && (NULL == (obj_ds = json_object_new_object()))) {
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_info__internal_error);
+                        }
+                        obj = obj_ds;
+                } else if(!strncmp(p->key, "rra[", 4)) {
+                        offset = 4;
+                        if((NULL == obj_rra) && (NULL == (obj_rra = json_object_new_object()))) {
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_info__internal_error);
+                        }
+                        obj = obj_rra;
+                } else {
+                        offset = 0;
+                        if((NULL == obj_rrd) && (NULL == (obj_rrd = json_object_new_object()))) {
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_info__internal_error);
+                        }
+                        obj = obj_rrd;
+                }
+
+                if(offset > 0) {
+                        if(NULL == (key_instance = strchr(p->key, ']'))) continue;
+                        l = key_instance - p->key - offset;
+                        if(l >= keybuffer_size) {
+                                keybuffer_size = l+64;
+                                keybuffer = realloc(keybuffer, keybuffer_size);
+                        }
+                        memcpy(keybuffer, p->key + offset, l);
+                        keybuffer[l] = '\0';
+                        if(NULL == (key_instance = strchr(key_instance, '.'))) continue;
+                        key_instance++;
+
+                } else {
+                        key_instance = p->key;
+                }
+
+                switch(p->type) {
+                        case RD_I_VAL:
+                                if(NULL == (obj_infoval = json_object_new_int((double)(p->value).u_val))) {
+                                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_info__internal_error);
+                                }
+                                break;
+                        case RD_I_CNT:
+                                if(NULL == (obj_infoval = json_object_new_int((int)(p->value).u_cnt))) {
+                                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_info__internal_error);
+                                }
+                                break;
+                        case RD_I_INT:
+                                if(NULL == (obj_infoval = json_object_new_int((int)(p->value).u_int))) {
+                                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_info__internal_error);
+                                }
+                                break;
+                        case RD_I_STR:
+                                if(NULL == (obj_infoval = json_object_new_string((p->value).u_str))) {
+                                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_info__internal_error);
+                                }
+                                break;
+                        default : /* not supported*/
+                                continue;
+                }
+                if(offset > 0) {
+                        if(NULL == (obj_instance = json_object_object_get(obj, keybuffer))) {
+                                if(NULL == (obj_instance = json_object_new_object())) {
+                                        json_object_put(obj_infoval);
+                                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_info__internal_error);
+                                }
+                                json_object_object_add(obj, keybuffer, obj_instance);
+                        }
+                        obj = obj_instance;
+                }
+                json_object_object_add(obj, key_instance, obj_infoval);
+        }
+        rrd_info_free(rrdinfo_data);
+
+        if(obj_rrd) json_object_object_add(resultobject, "rrd", obj_rrd);
+        if(obj_ds) json_object_object_add(resultobject, "DS", obj_ds);
+        if(obj_rra) json_object_object_add(resultobject, "RRA", obj_rra);
+
+
+        /* Last : add the "result" to the result object */
+        json_object_object_add(result, "result", resultobject);
+        if(path) free(path);
+        if(keybuffer) free(keybuffer);
+
+        return(0);
+
+jsonrpc_cb_pw_rrd_info__internal_error:
+        rc = JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR;
+jsonrpc_cb_pw_rrd_info__any_error:
+        if(resultobject) json_object_put(resultobject);
+        if(obj_rrd) json_object_put(obj_rrd);
+        if(obj_rra) json_object_put(obj_rra);
+        if(obj_ds) json_object_put(obj_ds);
+        if(path) free(path);
+        if(keybuffer) free(keybuffer);
+        if(rrdinfo_data) rrd_info_free(rrdinfo_data);
+        return(rc);
+} /* }}} jsonrpc_cb_pw_rrd_info */
 /* vim: set fdm=marker sw=8 ts=8 tw=78 et : */
