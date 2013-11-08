@@ -426,38 +426,32 @@ int jsonrpc_cb_pw_get_metric (struct json_object *params, struct json_object *re
 } /* }}} jsonrpc_cb_pw_get_metric */
 
 static int get_dir_files_into_resultobject(const char *path, struct json_object *resultobject) { /* {{{ */
-        DIR *dh;
-        struct dirent *f;
-        struct dirent *fr;
+        DIR *dh = NULL;
+        struct dirent *f = NULL;
+        struct dirent *fr = NULL;
         int r;
+        int rc;
         size_t len;
         size_t nb;
-        struct json_object *array;
-        struct json_object *obj;
+        struct json_object *array = NULL;
+        struct json_object *obj = NULL;
 
         /* Allocate the dirent structure */
         len = offsetof(struct dirent, d_name) + pathconf(path, _PC_NAME_MAX) + 1;
         if(NULL == (f = malloc(len))) {
                 DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory");
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                goto get_dir_files_into_resultobject__internal_error;
         }
 
         /* Open the datadir directory */
         if(NULL == (dh = opendir(path))) {
                 DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not open datadir '%s'", path);
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                free(f);
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                goto get_dir_files_into_resultobject__internal_error;
         }
 
         /* Create the array of values */
         if(NULL == (array = json_object_new_array())) {
-                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json array");
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                closedir(dh);
-                free(f);
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(get_dir_files_into_resultobject__internal_error);
         }
 
         /* Append the contents of the datadir directory to the array */
@@ -466,37 +460,43 @@ static int get_dir_files_into_resultobject(const char *path, struct json_object 
                 if(0 == strcmp(f->d_name, ".")) continue;
                 if(0 == strcmp(f->d_name, "..")) continue;
                 if(NULL == (obj = json_object_new_string(f->d_name))) {
-                        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
-                        json_object_put(array);
-                        closedir(dh);
-                        free(f);
-                        return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(get_dir_files_into_resultobject__internal_error);
                 }
                 json_object_array_add(array,obj);
                 nb += 1;
         }
-        closedir(dh);
-        free(f);
+        closedir(dh); dh = NULL;
+        free(f); f = NULL;
         /* Check if something went wrong */
         if(0 != r) {
                 DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not read a directory entry in datadir");
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                json_object_put(array);
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                goto get_dir_files_into_resultobject__internal_error;
         }
 
         json_object_object_add(resultobject, "values", array);
+        array = NULL; /* do not free */
 
         /* Insert the nb of values in the result object */
         if(NULL == (obj = json_object_new_int((int)nb))) {
-                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
-                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not create a json object");
-                return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(get_dir_files_into_resultobject__internal_error);
         }
         json_object_object_add(resultobject, "nb", obj);
 
+        /* Insert the datadir in the result object */
+        if(NULL == (obj = json_object_new_string(jsonrpc_datadir[0]?jsonrpc_datadir:"."))) {
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(get_dir_files_into_resultobject__internal_error);
+        }
+        json_object_object_add(resultobject, "datadir", obj);
+
         return(0);
+
+get_dir_files_into_resultobject__internal_error:
+        rc = JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR;
+/* get_dir_files_into_resultobject__any_error: */
+        if(dh) closedir(dh);
+        if(f) free(f);
+        if(array) json_object_put(array);
+        return(rc);
 } /* }}} get_dir_files_into_resultobject */
 
 /* #define GET_DIR_RRD_CONTENTS_INTO_RESULTOBJECT__INTERNAL_ERROR {{{ */
