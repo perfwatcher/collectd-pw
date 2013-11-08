@@ -22,6 +22,9 @@
 
 #include <sys/types.h>
 #include <dirent.h>
+#include <unistd.h>
+#include <limits.h>
+#include <stdlib.h>
 
 #include "utils_avltree.h"
 #include "utils_cache.h"
@@ -48,6 +51,69 @@ extern char jsonrpc_datadir[];
 } while(0)
 /* }}} */
 
+static char *readlink_new(const char *path) { /* {{{ */
+        char *linkstr = NULL;
+        int linksize = 0;
+        int linklen;
+        ssize_t rc = -1;
+        errno = ENAMETOOLONG;
+        char *realpathstr = NULL;
+        int realpathlen = 0;
+        int pathlen;
+        char *resultstr;
+
+        while((-1 == rc) && (ENAMETOOLONG == errno)) {
+                linksize += 1024;
+                if(NULL == (linkstr = realloc(linkstr, linksize))) {
+                        ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory (%s:%d)", __FILE__, __LINE__);
+                        return(NULL);
+                }
+
+                errno = 0;
+                rc = readlink(path, linkstr, linksize);
+        }
+        if(-1 == rc) {
+                if(linkstr) free(linkstr);
+                ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "readlink(%s) failed, errno=%d (%s:%d)", path, errno, __FILE__, __LINE__);
+                return(NULL);
+        }
+        /* Check that we have enough space to add a nul character at the end. */
+        if(rc >= linksize) {
+                linksize += 1;
+                if(NULL == (linkstr = realloc(linkstr, linksize))) {
+                        ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory (%s:%d)", __FILE__, __LINE__);
+                        return(NULL);
+                }
+        }
+        /* Append a nul character at the end as readlink does not do it (too bad) */
+        linkstr[rc] = '\0';
+
+        /* Check if we have an absolute path or not */
+        if(linkstr[0] == '/') return(linkstr);
+
+        pathlen = strlen(path);
+        assert(NULL != linkstr);
+        linklen = strlen(linkstr);
+
+        while((pathlen>0) && (path[pathlen] != '/')) pathlen--;
+        if(0 == pathlen) return(linkstr); /* path was not absolute !!! */
+        pathlen++;
+        realpathlen = linklen + pathlen + 1;
+
+        if(NULL == (realpathstr = malloc(realpathlen))) {
+                ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory (%s:%d)", __FILE__, __LINE__);
+                if(linkstr) free(linkstr);
+                return(NULL);
+        }
+
+        memcpy(realpathstr, path, pathlen);
+        memcpy(realpathstr + pathlen, linkstr, linklen + 1);
+        free(linkstr);
+        resultstr = realpath(realpathstr, NULL);
+        free(realpathstr);
+
+        return(resultstr);
+} /* }}} readlink_new */
 
 static int jsonrpc_datadir_append_string(const char *string, char **path, int is_hostname) { /* {{{ */
         size_t l, l1, l2;
@@ -79,6 +145,45 @@ static int jsonrpc_datadir_append_string(const char *string, char **path, int is
 
         return(0);
 } /* }}} jsonrpc_datadir_append_string */
+
+#ifdef JSONRPC_DATA_DIR_APPEND_STRING_IS_NOT_USED_AND_CAN_BE_REMOVED_IF_NOBODY_USES_IT
+static int jsonrpc_datadir_append_string_to_buffer(const char *string, char **buffer, int *buffer_size, int *datadir_len) { /* {{{ */
+/* First run :
+ * buffer = NULL;
+ * buffer_size = 0;
+ * datadir_len = 0;
+ * rc = jsonrpc_datadir_append_string_to_buffer(rrd_file, &buffer, &buffer_size, &datadir_len);
+ * ** this will allocate memory for the buffer. **
+ *
+ * Next runs (do not modify buffer, buffer_size and datadir_len) :
+ * rc = jsonrpc_datadir_append_string_to_buffer(rrd_file, &buffer, &buffer_size, &datadir_len);
+ */
+        size_t l, string_len;
+
+        /* Parse the string */
+        if((0 == strcmp(string, ".")) || (0 == strcmp(string, ".."))) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "'%s' should not be '.' or '..'", string);
+                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
+        }
+
+        /* Create the path variable */
+        if(0 == *datadir_len) *datadir_len = strlen(jsonrpc_datadir[0]?jsonrpc_datadir:".");
+        string_len = strlen(string);
+        l = *datadir_len + string_len + 2;
+        if(l > *buffer_size) {
+                *buffer_size = l + 10;
+                if(NULL == (*buffer = realloc(*buffer, *buffer_size))) {
+                        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                        return (JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+                }
+        }
+        if(0 == *buffer_size) memcpy(*buffer, jsonrpc_datadir[0]?jsonrpc_datadir:".", *datadir_len);
+        (*buffer)[*datadir_len] = '/';
+        memcpy(*buffer+*datadir_len+1, string, string_len+1);
+
+        return(0);
+} /* }}} jsonrpc_datadir_append_string_to_buffer */
+#endif
 
 static const char *jsonrpc_cb_get_param_string(struct json_object *params, char *key) { /* {{{ */
         const char *str = NULL;
@@ -1052,4 +1157,123 @@ jsonrpc_cb_pw_rrd_info__any_error:
         if(rrdinfo_data) rrd_info_free(rrdinfo_data);
         return(rc);
 } /* }}} jsonrpc_cb_pw_rrd_info */
+
+/* JSONRPC EXAMPLE SYNTAX for "pw_rrd_check_files" {{{
+   {
+       "jsonrpc": "2.0",
+       "method" : "pw_rrd_check_files",
+       "params": [ "<list>", "<of>", "<rrd files>" ],
+       "id": 3
+   }
+}}} */
+int jsonrpc_cb_pw_rrd_check_files (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
+        int rc;
+        struct array_list *al;
+        struct json_object *resultobject = NULL;
+        int array_len;
+        int i;
+
+        *errorstring = NULL;
+
+        /* Parse the params */
+        RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_array);
+
+        if(NULL == (resultobject = json_object_new_array())) {
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_check_files__internal_error);
+        }
+
+        al = json_object_get_array(params);
+        assert(NULL != al);
+        array_len = json_object_array_length (params);
+        for(i=0; i<array_len; i++) {
+                struct stat statbuf;
+                struct json_object *element;
+                struct json_object *obj;
+                struct json_object *obj_element;
+                const char *rrd_filename;
+
+                element = json_object_array_get_idx(params, i);
+                assert(NULL != element);
+                if(!json_object_is_type (element, json_type_string)) {
+                        rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                        goto jsonrpc_cb_pw_rrd_check_files__any_error;
+                }
+                if(NULL == (rrd_filename = json_object_get_string(element))) {
+                        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                        goto jsonrpc_cb_pw_rrd_check_files__internal_error;
+
+                }
+
+                /* Add file name to the result element */
+                if(NULL == (obj = json_object_new_object())) {
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_check_files__internal_error);
+                }
+                if(NULL == (obj_element = json_object_new_string(rrd_filename))) {
+                        json_object_put(obj);
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_check_files__internal_error);
+                }
+                json_object_object_add(obj, "file", obj_element);
+
+
+                /* Read info about the file  */
+                if(0 != lstat(rrd_filename, &statbuf)) {
+                        if(NULL == (obj_element = json_object_new_string("ERR"))) {
+                                json_object_put(obj);
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_check_files__internal_error);
+                        }
+                        json_object_object_add(obj, "type", obj_element);
+                        json_object_array_add(resultobject, obj);
+                        continue;
+                }
+                /* Add file type to the result element */
+                if(S_ISREG(statbuf.st_mode)) {
+                        /* This is a regular file */
+                        if(NULL == (obj_element = json_object_new_string("REG"))) {
+                                json_object_put(obj);
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_check_files__internal_error);
+                        }
+                        json_object_object_add(obj, "type", obj_element);
+                } else if(S_ISLNK(statbuf.st_mode)) {
+                        /* This is a link */
+                        char *lnk;
+                        if(NULL == (lnk = readlink_new(rrd_filename))) {
+                                json_object_put(obj);
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_check_files__internal_error);
+                        }
+                        if(NULL == (obj_element = json_object_new_string(lnk))) {
+                                free(lnk);
+                                json_object_put(obj);
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_check_files__internal_error);
+                        }
+                        json_object_object_add(obj, "linked_to", obj_element);
+                        free(lnk);
+
+                        if(NULL == (obj_element = json_object_new_string("LNK"))) {
+                                json_object_put(obj);
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_check_files__internal_error);
+                        }
+                        json_object_object_add(obj, "type", obj_element);
+                } else {
+                        /* This is an unsupported type */
+                        if(NULL == (obj_element = json_object_new_string("BAD"))) {
+                                json_object_put(obj);
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_check_files__internal_error);
+                        }
+                        json_object_object_add(obj, "type", obj_element);
+                }
+
+                json_object_array_add(resultobject, obj);
+        }
+
+        /* Last : add the "result" to the result object */
+        json_object_object_add(result, "result", resultobject);
+
+        return(0);
+
+jsonrpc_cb_pw_rrd_check_files__internal_error:
+        rc = JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR;
+jsonrpc_cb_pw_rrd_check_files__any_error:
+        if(resultobject) json_object_put(resultobject);
+        return(rc);
+} /* }}} jsonrpc_cb_pw_rrd_check_files */
 /* vim: set fdm=marker sw=8 ts=8 tw=78 et : */
