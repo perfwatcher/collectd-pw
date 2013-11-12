@@ -629,16 +629,16 @@ static int get_dir_rrd_contents_into_resultobject(const char *path, struct json_
         int current_filename_len = 0;
         int rc;
 
+        /* Open the datadir directory */
+        if(NULL == (dh = opendir(path))) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not open datadir '%s' (this is not an error)", path);
+                return(0);
+        }
+
         /* Allocate the dirent structure */
         len = offsetof(struct dirent, d_name) + pathconf(path, _PC_NAME_MAX) + 1;
         if(NULL == (f = malloc(len))) {
                 DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory");
-                GET_DIR_RRD_CONTENTS_INTO_RESULTOBJECT__INTERNAL_ERROR;
-        }
-
-        /* Open the datadir directory */
-        if(NULL == (dh = opendir(path))) {
-                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not open datadir '%s'", path);
                 GET_DIR_RRD_CONTENTS_INTO_RESULTOBJECT__INTERNAL_ERROR;
         }
 
