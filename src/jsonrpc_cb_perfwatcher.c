@@ -546,16 +546,16 @@ static int get_dir_files_into_resultobject(const char *path, struct json_object 
         struct json_object *array = NULL;
         struct json_object *obj = NULL;
 
+        /* Open the datadir directory */
+        if(NULL == (dh = opendir(path))) {
+                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not open datadir '%s' (this is not an error)", path);
+                return(0);
+        }
+
         /* Allocate the dirent structure */
         len = offsetof(struct dirent, d_name) + pathconf(path, _PC_NAME_MAX) + 1;
         if(NULL == (f = malloc(len))) {
                 DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory");
-                goto get_dir_files_into_resultobject__internal_error;
-        }
-
-        /* Open the datadir directory */
-        if(NULL == (dh = opendir(path))) {
-                DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not open datadir '%s'", path);
                 goto get_dir_files_into_resultobject__internal_error;
         }
 
@@ -865,7 +865,6 @@ int jsonrpc_cb_pw_get_dir_types (struct json_object *params, struct json_object 
         RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_object);
 
         /* Params : get the "hostname" */
-
         if(NULL == (str_hostname = jsonrpc_cb_get_param_string(params, "hostname"))) {
                 rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
                 goto jsonrpc_cb_pw_get_dir_types__any_error;
