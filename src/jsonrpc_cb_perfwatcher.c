@@ -804,9 +804,10 @@ int jsonrpc_cb_pw_get_dir_plugins (struct json_object *params, struct json_objec
         RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_object);
 
         /* Params : get the "hostname" */
-        if(NULL == (str = jsonrpc_cb_get_param_string(params, "hostname")))
+        if(NULL == (str = jsonrpc_cb_get_param_string(params, "hostname"))) {
                 rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
-        goto jsonrpc_cb_pw_get_dir_plugins__any_error;
+                goto jsonrpc_cb_pw_get_dir_plugins__any_error;
+        }
 
         if(0 != (r = jsonrpc_datadir_append_string(str, &path, 1))) {
                 rc = r;
