@@ -31,7 +31,8 @@
 	{ "pw_get_dir_types",    jsonrpc_cb_pw_get_dir_types    }, \
 	{ "pw_get_dir_all_rrds_for_host", jsonrpc_cb_pw_get_dir_all_rrds_for_host }, \
 	{ "pw_rrd_info",         jsonrpc_cb_pw_rrd_info    }, \
-	{ "pw_rrd_check_files",  jsonrpc_cb_pw_rrd_check_files    },
+	{ "pw_rrd_check_files",  jsonrpc_cb_pw_rrd_check_files    }, \
+	{ "pw_rrd_flush",        jsonrpc_cb_pw_rrd_flush    },
 
 int jsonrpc_cb_pw_get_status      (struct json_object *params, struct json_object *result, const char **errorstring);
 int jsonrpc_cb_pw_get_metric      (struct json_object *params, struct json_object *result, const char **errorstring);
@@ -41,5 +42,6 @@ int jsonrpc_cb_pw_get_dir_types   (struct json_object *params, struct json_objec
 int jsonrpc_cb_pw_get_dir_all_rrds_for_host   (struct json_object *params, struct json_object *result, const char **errorstring);
 int jsonrpc_cb_pw_rrd_info        (struct json_object *params, struct json_object *result, const char **errorstring);
 int jsonrpc_cb_pw_rrd_check_files (struct json_object *params, struct json_object *result, const char **errorstring);
+int jsonrpc_cb_pw_rrd_flush       (struct json_object *params, struct json_object *result, const char **errorstring);
 
 #endif /* JSONRPC_CB_PERFWATCHER_H */

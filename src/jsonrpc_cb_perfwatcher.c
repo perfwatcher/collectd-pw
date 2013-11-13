@@ -33,9 +33,11 @@
 #include "jsonrpc.h"
 #include <json/json.h>
 #include <rrd.h>
+#include <rrd_client.h>
 #define OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "JSONRPC plugin (perfwatcher) : "
 
 extern char jsonrpc_datadir[];
+extern char jsonrpc_rrdcached_daemon_address[];
 
 #define RETURN_IF_WRONG_PARAMS_TYPE(params, type) do { \
         if(!json_object_is_type ((params), (type))) { \
@@ -1309,4 +1311,120 @@ jsonrpc_cb_pw_rrd_check_files__any_error:
         if(rrd_file_path) free(rrd_file_path);
         return(rc);
 } /* }}} jsonrpc_cb_pw_rrd_check_files */
+
+/* JSONRPC EXAMPLE SYNTAX for "pw_rrd_flush" {{{
+   {
+       "jsonrpc": "2.0",
+       "method" : "pw_rrd_flush",
+       "params": [ "<list>", "<of>", "<rrd files>" ],
+       "id": 3
+   }
+}}} */
+int jsonrpc_cb_pw_rrd_flush (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
+        int rc;
+        struct array_list *al;
+        struct json_object *resultobject = NULL;
+        int array_len;
+        int i;
+        char *rrd_file_path = NULL;
+        int rrd_file_path_size = 0;
+        int datadir_len = 0;
+        int flush_result_code = 1;
+        int status;
+
+        *errorstring = NULL;
+        /* Check first if we are able to flush */
+        if('\0' == jsonrpc_rrdcached_daemon_address[0]) {
+                ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "RRDCachedDaemonAddress is not defined in the configuration file. It is needed if you want to flush.");
+                if(NULL == (resultobject = json_object_new_boolean(1))) {
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_flush__internal_error);
+                }
+                json_object_object_add(result, "result", resultobject);
+                return(0);
+        }
+
+        /* Parse the params */
+        RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_array);
+
+        if(0 != (status = rrdc_connect (jsonrpc_rrdcached_daemon_address))) {
+                ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "rrdc_connect (%s) failed with status %d.", jsonrpc_rrdcached_daemon_address, status);
+                goto jsonrpc_cb_pw_rrd_flush__internal_error;
+        }
+
+        al = json_object_get_array(params);
+        assert(NULL != al);
+        array_len = json_object_array_length (params);
+        for(i=0; i<array_len; i++) {
+                struct json_object *element;
+                struct json_object *obj;
+                struct json_object *obj_element;
+                const char *rrd_filename;
+                const char *rrd_file_to_flush;
+
+                element = json_object_array_get_idx(params, i);
+                assert(NULL != element);
+                if(!json_object_is_type (element, json_type_string)) {
+                        rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                        goto jsonrpc_cb_pw_rrd_flush__any_error;
+                }
+                if(NULL == (rrd_filename = json_object_get_string(element))) {
+                        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                        goto jsonrpc_cb_pw_rrd_flush__internal_error;
+
+                }
+
+                /* Add file name to the result element */
+                if(NULL == (obj = json_object_new_object())) {
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_flush__internal_error);
+                }
+                if(NULL == (obj_element = json_object_new_string(rrd_filename))) {
+                        json_object_put(obj);
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_flush__internal_error);
+                }
+                json_object_object_add(obj, "file", obj_element);
+
+
+                if(rrd_filename[0] == '/') {
+                        rrd_file_to_flush = rrd_filename;
+                } else {
+                        if(0 != (rc = jsonrpc_datadir_append_string_to_buffer(rrd_filename, &rrd_file_path, &rrd_file_path_size, &datadir_len))) {
+                                json_object_put(obj);
+                                goto jsonrpc_cb_pw_rrd_flush__any_error;
+                        }
+                        if(NULL == (obj_element = json_object_new_string(rrd_file_path))) {
+                                json_object_put(obj);
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_flush__internal_error);
+                        }
+                        json_object_object_add(obj, "path", obj_element);
+
+                        rrd_file_to_flush = rrd_file_path;
+
+                }
+                if(0 != (status = rrdc_flush (rrd_file_to_flush))) {
+                        ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "rrdc_flush (%s) failed with status %d.", rrd_file_to_flush, status);
+                        flush_result_code = 0;
+                } else {
+                        DEBUG (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "rrdc_flush (%s): Success.", rrd_file_to_flush);
+                }
+        }
+
+        rrdc_disconnect();
+
+        /* Last : add the "result" to the result object */
+        if(NULL == (resultobject = json_object_new_boolean(flush_result_code))) {
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_flush__internal_error);
+        }
+        json_object_object_add(result, "result", resultobject);
+
+        if(rrd_file_path) free(rrd_file_path);
+
+        return(0);
+
+jsonrpc_cb_pw_rrd_flush__internal_error:
+        rc = JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR;
+jsonrpc_cb_pw_rrd_flush__any_error:
+        if(resultobject) json_object_put(resultobject);
+        if(rrd_file_path) free(rrd_file_path);
+        return(rc);
+} /* }}} jsonrpc_cb_pw_rrd_flush */
 /* vim: set fdm=marker sw=8 ts=8 tw=78 et : */
