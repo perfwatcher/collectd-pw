@@ -21,6 +21,7 @@
  **/
 
 #include <sys/types.h>
+#include <signal.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <limits.h>
@@ -31,6 +32,7 @@
 #include "common.h"
 #include "plugin.h"
 #include "jsonrpc.h"
+#include "base64.h"
 #include <json/json.h>
 #include <rrd.h>
 #include <rrd_client.h>
@@ -38,12 +40,22 @@
 
 extern char jsonrpc_datadir[];
 extern char jsonrpc_rrdcached_daemon_address[];
+extern char jsonrpc_rrdtool_path[];
 
+/* #define RETURN_IF_WRONG_PARAMS_TYPE(params, type) {{{ */
 #define RETURN_IF_WRONG_PARAMS_TYPE(params, type) do { \
         if(!json_object_is_type ((params), (type))) { \
                 return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS); \
         } \
 } while(0)
+/* }}} */
+
+/* #define JSONRPC_FREE_AND_RETURN(gototarget) {{{ */
+#define JSONRPC_FREE_AND_RETURN_0(rc, gototarget) do { \
+        (rc) = 0; \
+        goto gototarget; \
+} while(0)
+/* }}} */
 
 /* #define JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT {{{ */
 #define JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(gototarget) do { \
@@ -52,6 +64,87 @@ extern char jsonrpc_rrdcached_daemon_address[];
         goto gototarget; \
 } while(0)
 /* }}} */
+
+#ifndef JSONRPC_GRAPH_RRDS_WITH_LIBRRD
+static int jsonrpc_spawn_process(const char *path, char * const argv[], unsigned char **pngdata, size_t *pngsize) { /* {{{ */
+#define JSONRPC_SPAWN_PROCESS_BUFFER_SIZE ((SSIZE_MAX) > 4096 ? 4096:(SSIZE_MAX))
+        int rc = 0;       
+        unsigned char buffer[JSONRPC_SPAWN_PROCESS_BUFFER_SIZE];
+        int buffer_len = 0;
+        int pos = 0;
+        int pid = 0;
+        int stdpipe[2];
+
+        *pngdata = NULL;
+        *pngsize = 0;
+
+        if(-1 == pipe(stdpipe)) {
+                return(JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR);
+        }
+
+        switch(pid = fork()) {
+                case -1: /* failed to fork */
+                        close(stdpipe[1]); /* Close it here because it will not be closed anywhere else */
+                        goto jsonrpc_spawn_process__internal_error;
+                case 0: /* child : execute the command */
+                /* WARNING : using ERROR(), WARNING(), INFO(), DEBUG()... here
+                 * may fail because of a lock. Do not use them here.
+                 */
+                        close(1);
+                        dup(stdpipe[1]);
+                        close(stdpipe[0]);
+                        execv(path, argv);
+                        /* This should not be executed */
+                        perror("Could not execute");
+                        exit(EXIT_FAILURE);
+        }
+        /* if we are here, fork() succeeded and we are the parent */
+        close(stdpipe[1]);
+        *pngsize = 1;
+        pos = 0;
+        errno = 0;
+        while(0 < (buffer_len = read(stdpipe[0], buffer, JSONRPC_SPAWN_PROCESS_BUFFER_SIZE))) {
+                *pngsize += buffer_len;
+                if(NULL == (*pngdata = realloc(*pngdata, *pngsize))) {
+                        ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Memory allocation failed (%s:%d)", __FILE__, __LINE__);
+                        *pngsize = 0;
+                        goto jsonrpc_spawn_process__internal_error;
+                }
+                memcpy(*pngdata + pos, buffer, buffer_len);
+                pos += buffer_len;
+                if(buffer_len != JSONRPC_SPAWN_PROCESS_BUFFER_SIZE) break;
+        }
+        if(buffer_len == -1) {
+                ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Read failed through the pipe; errno=%d (%s:%d)", errno, __FILE__, __LINE__);
+                goto jsonrpc_spawn_process__internal_error;
+        }
+        if(*pngdata) (*pngdata)[*pngsize - 1] = '\0';
+
+        JSONRPC_FREE_AND_RETURN_0(rc, jsonrpc_spawn_process__free_and_return);
+
+        /* Error handling */
+jsonrpc_spawn_process__internal_error:
+        rc = JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR;
+/* jsonrpc_spawn_process__any_error: */
+        if(*pngdata) free(*pngdata);
+        *pngdata = NULL;
+        *pngsize = 0;
+jsonrpc_spawn_process__free_and_return:
+        close(stdpipe[0]);
+        if(0 != pid) {
+                int status;
+                kill(pid, SIGQUIT);
+                waitpid(pid, &status, 0);
+                if(0 != WEXITSTATUS(status)) {
+                        if(*pngdata) free(*pngdata);
+                        *pngdata = NULL;
+                        *pngsize = 0;
+                        if(0 == rc) rc = JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR;
+                }
+        }
+        return(rc);
+} /* }}} jsonrpc_spawn_process */
+#endif
 
 static char *readlink_new(const char *path) { /* {{{ */
         char *linkstr = NULL;
@@ -378,6 +471,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
         return(0);
 } /* }}} jsonrpc_cb_pw_get_status */
 
+/* #define free_avl_tree_keys(tree) {{{ */
 #define free_avl_tree_keys(tree) do {                                             \
 			c_avl_iterator_t *it;                                                 \
 			it = c_avl_get_iterator(tree);                                        \
@@ -386,6 +480,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
 			}                                                                     \
 			c_avl_iterator_destroy(it);                                           \
 	} while(0)
+/* }}} */
 
 /* JSONRPC EXAMPLE SYNTAX for "pw_get_metric" {{{
    {
@@ -1323,8 +1418,8 @@ jsonrpc_cb_pw_rrd_check_files__any_error:
 int jsonrpc_cb_pw_rrd_flush (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
         int rc;
         struct array_list *al;
-        struct json_object *resultobject = NULL;
         int array_len;
+        struct json_object *resultobject = NULL;
         int i;
         char *rrd_file_path = NULL;
         int rrd_file_path_size = 0;
@@ -1427,4 +1522,173 @@ jsonrpc_cb_pw_rrd_flush__any_error:
         if(rrd_file_path) free(rrd_file_path);
         return(rc);
 } /* }}} jsonrpc_cb_pw_rrd_flush */
+
+/* jsonrpc example syntax for "pw_rrd_graphonly" {{{
+   {
+       "jsonrpc": "2.0",
+       "method" : "pw_rrd_graphonly",
+       "params": [ "<list>", "<of>", "<rrd>", "<command>", "<lines>" ],
+       "id": 3
+   }
+}}} */
+int jsonrpc_cb_pw_rrd_graphonly (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
+        int rc;
+        struct array_list *al;
+        struct json_object *resultobject = NULL;
+        int array_len;
+        int i;
+        int graph_argc;
+        const char ** graph_argv = NULL;
+        unsigned char *pngdata = NULL;
+        size_t pngsize = 0;
+        char *pngstr_b64 = NULL;
+        size_t pnglen_b64;
+        struct json_object *obj = NULL;
+#ifdef JSONRPC_GRAPH_RRDS_WITH_LIBRRD
+#define JSONRPC_CB_PW_RRD_GRAPHONLY__ARG_OFFSET 2
+        rrd_info_t *grinfo = NULL;
+        rrd_info_t *walker;
+#else
+#define JSONRPC_CB_PW_RRD_GRAPHONLY__ARG_OFFSET 3
+        int flush_before = 1;
+#endif
+
+        *errorstring = NULL;
+
+#ifndef JSONRPC_GRAPH_RRDS_WITH_LIBRRD
+        /* Check first rrdtool path was defined */
+        if('\0' == jsonrpc_rrdtool_path[0]) {
+                ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "RRDToolPath is not defined in the configuration file. It is needed if you want to graph.");
+                if(NULL == (resultobject = json_object_new_boolean(1))) {
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_graphonly__internal_error);
+                }
+                json_object_object_add(result, "result", resultobject);
+                return(0);
+        }
+
+
+        /* Check first if we are able to flush */
+        if('\0' == jsonrpc_rrdcached_daemon_address[0]) {
+                WARNING (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "RRDCachedDaemonAddress is not defined in the configuration file. It is needed if you want to flush.");
+                flush_before = 0;
+        }
+#endif
+
+        /* Parse the params */
+        RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_array);
+
+        al = json_object_get_array(params);
+        assert(NULL != al);
+        array_len = json_object_array_length (params);
+
+        /* Prepare the "rrdtool graph" command line */
+        graph_argc = array_len + JSONRPC_CB_PW_RRD_GRAPHONLY__ARG_OFFSET;
+#ifndef JSONRPC_GRAPH_RRDS_WITH_LIBRRD
+        graph_argc += flush_before?2:0;
+#endif
+
+        /* Allocate for graph_argc elements plus 1 NULL element for NULL
+         * terminated array
+         */
+        if(NULL == (graph_argv = calloc(1 + graph_argc, sizeof(*graph_argv)))) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory %s:%d", __FILE__, __LINE__);
+                goto jsonrpc_cb_pw_rrd_graphonly__internal_error;
+        }
+#ifndef JSONRPC_GRAPH_RRDS_WITH_LIBRRD
+        graph_argv[0] = jsonrpc_rrdtool_path;
+#endif
+        graph_argv[JSONRPC_CB_PW_RRD_GRAPHONLY__ARG_OFFSET-2] = "graph";
+        graph_argv[JSONRPC_CB_PW_RRD_GRAPHONLY__ARG_OFFSET-1] = "-";
+
+        for(i=0; i<array_len; i++) {
+                struct json_object *element;
+
+                element = json_object_array_get_idx(params, i);
+                assert(NULL != element);
+                if(!json_object_is_type (element, json_type_string)) {
+                        rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                        goto jsonrpc_cb_pw_rrd_graphonly__any_error;
+                }
+                if(NULL == (graph_argv[JSONRPC_CB_PW_RRD_GRAPHONLY__ARG_OFFSET+i] = json_object_get_string(element))) {
+                        DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                        goto jsonrpc_cb_pw_rrd_graphonly__internal_error;
+                }
+        }
+
+        /* Create the result object */
+        if(NULL == (resultobject = json_object_new_object())) {
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_graphonly__internal_error);
+        }
+
+#ifdef JSONRPC_GRAPH_RRDS_WITH_LIBRRD
+        /* Generate the graph (with rrd_graph_v) */
+        if(NULL == (grinfo = rrd_graph_v(graph_argc, (char **)graph_argv))) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", __FILE__, __LINE__);
+                goto jsonrpc_cb_pw_rrd_graphonly__internal_error;
+        }
+
+        for(walker = grinfo; walker; walker = walker->next) {
+                if(! strcmp(walker->key, "image")) {
+                        pngdata = walker->value.u_blo.ptr;
+                        pngsize = walker->value.u_blo.size;
+                        break;
+
+                }
+        }
+#else
+        /* Generate the graph (with "rrdtool graph -") */
+        if(flush_before) {
+                graph_argv[graph_argc - 2] = "--daemon";
+                graph_argv[graph_argc - 1] = jsonrpc_rrdcached_daemon_address;
+                graph_argv[graph_argc - 0] = NULL; /* we allocated graph_argc + 1 elements so there is no bug here ! */
+        }
+        rc = jsonrpc_spawn_process(jsonrpc_rrdtool_path, (char * const *) graph_argv, &pngdata, &pngsize);
+        if(0 != rc) {
+                goto jsonrpc_cb_pw_rrd_graphonly__any_error;
+        }
+#endif
+
+        /* Encode the image */
+        if(pngdata) {
+                pnglen_b64 = base64_encode_alloc ((const char *)pngdata, pngsize - 1, &pngstr_b64);
+
+                if (NULL == pngstr_b64) {
+                        if(0 == pnglen_b64) {
+                                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d (buffer for base64 conversion is too small !?)", __FILE__, __LINE__);
+                        } else {
+                                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory %s:%d", __FILE__, __LINE__);
+                        }
+                        goto jsonrpc_cb_pw_rrd_graphonly__internal_error;
+                }
+                /* Add the image to the result */
+                if(NULL == (obj = json_object_new_string(pngstr_b64))) {
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(jsonrpc_cb_pw_rrd_graphonly__internal_error);
+                }
+                json_object_object_add(resultobject, "image", obj);
+        }
+
+        /* Last : add the "result" to the result object */
+        json_object_object_add(result, "result", resultobject);
+
+        if(graph_argv) free(graph_argv);
+#ifdef JSONRPC_GRAPH_RRDS_WITH_LIBRRD
+        if(grinfo) rrd_info_free(grinfo);
+#else
+        if(pngdata) free(pngdata);
+#endif
+
+        return(0);
+
+jsonrpc_cb_pw_rrd_graphonly__internal_error:
+        rc = JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR;
+jsonrpc_cb_pw_rrd_graphonly__any_error:
+        if(resultobject) json_object_put(resultobject);
+        if(graph_argv) free(graph_argv);
+#ifdef JSONRPC_GRAPH_RRDS_WITH_LIBRRD
+        if(grinfo) rrd_info_free(grinfo);
+#else
+        if(pngdata) free(pngdata);
+#endif
+        return(rc);
+} /* }}} jsonrpc_cb_pw_rrd_graphonly */
 /* vim: set fdm=marker sw=8 ts=8 tw=78 et : */
