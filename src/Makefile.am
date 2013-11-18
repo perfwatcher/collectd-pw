@@ -541,7 +541,7 @@ endif
 #
 if BUILD_JSONRPC_USE_PERFWATCHER
 # Note : include base64 here. If needed somewhere else, maybe something better should be implemented ?
-jsonrpc_la_SOURCES += jsonrpc_cb_perfwatcher.c jsonrpc_cb_perfwatcher.h jsonrpc_base64_header.h base64.c base64.h
+jsonrpc_la_SOURCES += jsonrpc_cb_perfwatcher.c jsonrpc_cb_perfwatcher.h base64.c base64.h
 jsonrpc_la_CFLAGS += $(BUILD_WITH_LIBRRD_CFLAGS)
 jsonrpc_la_LIBADD += $(BUILD_WITH_LIBRRD_LDFLAGS)
 endif
