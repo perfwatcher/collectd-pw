@@ -482,6 +482,8 @@
 #   Authentication "Basic"
 #   Authfile "@prefix@/share/collectd/jsonrpc_passwd.txt"
 #   TopPsDataDir "/var/lib/collectd/top"
+#   RRDToolPath "/usr/bin/rrdtool"
+#   RRDCachedDaemonAddress "unix:/tmp/rrdcached.sock"
 #</Plugin>
 
 #<Plugin libvirt>

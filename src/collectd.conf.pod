@@ -2128,6 +2128,8 @@ Synopsis:
    Authfile "/etc/collectd.passwd.txt"
    JsonrpcCacheExpirationTime 60
    TopPsDataDir "/var/lib/collectd/top"
+   RRDToolPath "/usr/bin/rrdtool"
+   RRDCachedDaemonAddress "unix:/var/run/rrdcached.sock"
  </Plugin>
 
 Available configuration options:
@@ -2229,6 +2231,14 @@ collectd cache.
 
 If the plugin was compiled with support for TopPs, this is the path where to find
 files from the write_top plugin.
+
+=item B<RRDToolPath> I<path>
+
+Path of rrdtool.
+
+=item B<RRDCachedDaemonAddress> I<path>
+
+Path of the rrdcached communication socket.
 
 =back
 

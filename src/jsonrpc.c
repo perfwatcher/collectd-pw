@@ -192,6 +192,8 @@ static const char *config_keys[] =
 	"Authfile",
 	"JsonrpcCacheExpirationTime",
 	"DataDir",
+	"RRDCachedDaemonAddress",
+	"RRDToolPath",
 	"TopPsDataDir"
 
 };
@@ -215,6 +217,8 @@ c_avl_tree_t *config_authentication_type_basic_filename_cache = NULL;
 
 #ifdef JSONRPC_USE_PERFWATCHER
 char jsonrpc_datadir[2048] = "";
+char jsonrpc_rrdcached_daemon_address[2048] = "";
+char jsonrpc_rrdtool_path[2048] = "";
 #endif
 #ifdef JSONRPC_USE_TOPPS
 char jsonrpc_toppsdatadir[2048] = "";
@@ -1152,6 +1156,20 @@ static int jsonrpc_config (const char *key, const char *val)
 		strncpy(jsonrpc_datadir, val, sizeof(jsonrpc_datadir));
 #else
 			WARNING(OUTPUT_PREFIX_JSONRPC "DataDir specified but this module was not compiled to use it.");
+#endif
+	} else if (strcasecmp (key, "RRDCachedDaemonAddress") == 0) {
+#ifdef JSONRPC_USE_PERFWATCHER
+		errno=0;
+		strncpy(jsonrpc_rrdcached_daemon_address, val, sizeof(jsonrpc_rrdcached_daemon_address));
+#else
+			WARNING(OUTPUT_PREFIX_JSONRPC "RRDCachedDaemonAddress specified but this module was not compiled to use it.");
+#endif
+	} else if (strcasecmp (key, "RRDToolPath") == 0) {
+#ifdef JSONRPC_USE_PERFWATCHER
+		errno=0;
+		strncpy(jsonrpc_rrdtool_path, val, sizeof(jsonrpc_rrdtool_path));
+#else
+			WARNING(OUTPUT_PREFIX_JSONRPC "RRDToolPath specified but this module was not compiled to use it.");
 #endif
 	} else if (strcasecmp (key, "TopPsDataDir") == 0) {
 #ifdef JSONRPC_USE_TOPPS

@@ -577,8 +577,20 @@ collectd_DEPENDENCIES += jsonrpc.la
 if BUILD_JSONRPC_USE_BASE
 jsonrpc_la_SOURCES += jsonrpc_cb_base.c jsonrpc_cb_base.h
 endif
+# Define JSONRPC_GRAPH_RRDS_WITH_LIBRRD if you want to use internal rrd_graph_v() from librrd.
+# You may prefer to fork+exec rrdtool graph if you consider that librrd
+# rrd_graph_v() and its dependancies (pango at least) is not sure enough
+# (memory leaks ?) inside a daemonized web server.
+#
+# Use JSONRPC_GRAPH_RRDS_WITH_LIBRRD at your own risk !
+#
+#BUILD_WITH_LIBRRD_CFLAGS += -DJSONRPC_GRAPH_RRDS_WITH_LIBRRD
+#
 if BUILD_JSONRPC_USE_PERFWATCHER
-jsonrpc_la_SOURCES += jsonrpc_cb_perfwatcher.c jsonrpc_cb_perfwatcher.h
+# Note : include base64 here. If needed somewhere else, maybe something better should be implemented ?
+jsonrpc_la_SOURCES += jsonrpc_cb_perfwatcher.c jsonrpc_cb_perfwatcher.h base64.c base64.h
+jsonrpc_la_CFLAGS += $(BUILD_WITH_LIBRRD_CFLAGS)
+jsonrpc_la_LIBADD += $(BUILD_WITH_LIBRRD_LDFLAGS)
 endif
 if BUILD_JSONRPC_USE_TOPPS
 jsonrpc_la_SOURCES += jsonrpc_cb_topps.c jsonrpc_cb_topps.h
