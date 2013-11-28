@@ -1,6 +1,6 @@
 /**
  * collectd - src/rrdcached.c
- * Copyright (C) 2008-2012  Florian octo Forster
+ * Copyright (C) 2008-2013  Florian octo Forster
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -46,10 +46,14 @@ static rrdcreate_config_t rrdcreate_config =
 	/* timespans_num = */ 0,
 
 	/* rra_types = */ NULL,
-	/* rra_types_num = */ 0,
+
+	/* rra_param = */ NULL,
+	/* rra_param_num = */ 0,
 
 	/* consolidation_functions = */ NULL,
-	/* consolidation_functions_num = */ 0
+	/* consolidation_functions_num = */ 0,
+
+	/* async = */ 0
 };
 
 /*
@@ -115,112 +119,43 @@ static int value_list_to_string (char *buffer, int buffer_len,
   return (0);
 } /* int value_list_to_string */
 
-static int value_list_to_filename (char *buffer, int buffer_len,
-    const data_set_t *ds, const value_list_t *vl)
+static int value_list_to_filename (char *buffer, size_t buffer_size,
+    value_list_t const *vl)
 {
-  int offset = 0;
+  char const suffix[] = ".rrd";
   int status;
-
-  assert (0 == strcmp (ds->type, vl->type));
+  size_t len;
 
   if (datadir != NULL)
   {
-    status = ssnprintf (buffer + offset, buffer_len - offset,
-        "%s/", datadir);
-    if ((status < 1) || (status >= buffer_len - offset))
-      return (-1);
-    offset += status;
+    size_t datadir_len = strlen (datadir) + 1;
+
+    if (datadir_len >= buffer_size)
+      return (ENOMEM);
+
+    sstrncpy (buffer, datadir, buffer_size);
+    buffer[datadir_len - 1] = '/';
+    buffer[datadir_len] = 0;
+
+    buffer += datadir_len;
+    buffer_size -= datadir_len;
   }
 
-  status = ssnprintf (buffer + offset, buffer_len - offset,
-      "%s/", vl->host);
-  if ((status < 1) || (status >= buffer_len - offset))
-    return (-1);
-  offset += status;
-
-  if (strlen (vl->plugin_instance) > 0)
-    status = ssnprintf (buffer + offset, buffer_len - offset,
-        "%s-%s/", vl->plugin, vl->plugin_instance);
-  else
-    status = ssnprintf (buffer + offset, buffer_len - offset,
-        "%s/", vl->plugin);
-  if ((status < 1) || (status >= buffer_len - offset))
-    return (-1);
-  offset += status;
-
-  if (strlen (vl->type_instance) > 0)
-    status = ssnprintf (buffer + offset, buffer_len - offset,
-        "%s-%s", vl->type, vl->type_instance);
-  else
-    status = ssnprintf (buffer + offset, buffer_len - offset,
-        "%s", vl->type);
-  if ((status < 1) || (status >= buffer_len - offset))
-    return (-1);
-  offset += status;
-
-  strncpy (buffer + offset, ".rrd", buffer_len - offset);
-  buffer[buffer_len - 1] = 0;
-
-  return (0);
-} /* int value_list_to_filename */
-
-static int rc_config_get_int_positive (oconfig_item_t const *ci, int *ret)
-{
-  int status;
-  int tmp = 0;
-
-  status = cf_util_get_int (ci, &tmp);
+  status = FORMAT_VL (buffer, buffer_size, vl);
   if (status != 0)
     return (status);
-  if (tmp < 0)
-    return (EINVAL);
 
-  *ret = tmp;
-  return (0);
-} /* int rc_config_get_int_positive */
+  len = strlen (buffer);
+  assert (len < buffer_size);
+  buffer += len;
+  buffer_size -= len;
 
-static int rc_config_get_xff (oconfig_item_t const *ci, double *ret)
-{
-  double value;
-
-  if ((ci->values_num != 1) || (ci->values[0].type != OCONFIG_TYPE_NUMBER))
-  {
-    ERROR ("rrdcached plugin: The \"%s\" needs exactly one numeric argument "
-        "in the range [0.0, 1.0)", ci->key);
-    return (EINVAL);
-  }
-
-  value = ci->values[0].value.number;
-  if ((value >= 0.0) && (value < 1.0))
-  {
-    *ret = value;
-    return (0);
-  }
-
-  ERROR ("rrdcached plugin: The \"%s\" needs exactly one numeric argument "
-      "in the range [0.0, 1.0)", ci->key);
-  return (EINVAL);
-} /* int rc_config_get_xff */
-
-static int rc_config_add_timespan (int timespan)
-{
-  int *tmp;
-
-  if (timespan <= 0)
-    return (EINVAL);
-
-  tmp = realloc (rrdcreate_config.timespans,
-      sizeof (*rrdcreate_config.timespans)
-      * (rrdcreate_config.timespans_num + 1));
-  if (tmp == NULL)
+  if (buffer_size <= sizeof (suffix))
     return (ENOMEM);
-  rrdcreate_config.timespans = tmp;
 
-  rrdcreate_config.timespans[rrdcreate_config.timespans_num] = timespan;
-  rrdcreate_config.timespans_num++;
-
+  memcpy (buffer, suffix, sizeof (suffix));
   return (0);
-} /* int rc_config_add_timespan */
+} /* int value_list_to_filename */
 
 static int rc_config (oconfig_item_t *ci)
 {
@@ -253,6 +188,8 @@ static int rc_config (oconfig_item_t *ci)
       status = cf_util_get_string (child, &daemon_address);
     else if (strcasecmp ("CreateFiles", key) == 0)
       status = cf_util_get_boolean (child, &config_create_files);
+    else if (strcasecmp ("CreateFilesAsync", key) == 0)
+      status = cf_util_get_boolean (child, &rrdcreate_config.async);
     else if (strcasecmp ("CollectStatistics", key) == 0)
       status = cf_util_get_boolean (child, &config_collect_stats);
     else if (strcasecmp ("StepSize", key) == 0)
@@ -272,19 +209,19 @@ static int rc_config (oconfig_item_t *ci)
       int tmp = -1;
       status = rc_config_get_int_positive (child, &tmp);
       if (status == 0)
-        status = rc_config_add_timespan (tmp);
+        status = rc_config_add_timespan (tmp, &rrdcreate_config);
     }
     else if (strcasecmp ("XFF", key) == 0)
       status = rc_config_get_xff (child, &rrdcreate_config.xff);
 	else if (strcasecmp ("RRA", key) == 0)
     {
-      char buffer[1024];
-      memset (buffer, 0, sizeof (buffer));
-      status = cf_util_get_string_buffer (child, buffer, sizeof(buffer));
-      if(0 == status) {
-        if(0 != cu_rrd_rra_types_set(&rrdcreate_config, buffer))
-          return(-1);
-      }
+      if(0 != cu_rrd_rra_types_set(child, &rrdcreate_config))
+        return(-1);
+    }
+	else if (strcasecmp ("RRADef", key) == 0)
+    {
+      if(0 != cu_rrd_rra_param_append(child, &rrdcreate_config))
+        return(-1);
     }
     else
     {
@@ -295,6 +232,8 @@ static int rc_config (oconfig_item_t *ci)
     if (status != 0)
       WARNING ("rrdcached plugin: Handling the \"%s\" option failed.", key);
   }
+
+  cu_rrd_sort_config_items(&rrdcreate_config);
 
   if (daemon_address != NULL)
   {
@@ -328,6 +267,14 @@ static int rc_read (void)
   else
     sstrncpy (vl.host, daemon_address, sizeof (vl.host));
   sstrncpy (vl.plugin, "rrdcached", sizeof (vl.plugin));
+
+  status = rrdc_connect (daemon_address);
+  if (status != 0)
+  {
+    ERROR ("rrdcached plugin: rrdc_connect (%s) failed with status %i.",
+        daemon_address, status);
+    return (-1);
+  }
 
   head = NULL;
   status = rrdc_stats_get (&head);
@@ -435,7 +382,7 @@ static int rc_write (const data_set_t *ds, const value_list_t *vl,
     return (-1);
   }
 
-  if (value_list_to_filename (filename, sizeof (filename), ds, vl) != 0)
+  if (value_list_to_filename (filename, sizeof (filename), vl) != 0)
   {
     ERROR ("rrdcached plugin: value_list_to_filename failed.");
     return (-1);
@@ -472,6 +419,8 @@ static int rc_write (const data_set_t *ds, const value_list_t *vl,
             filename);
         return (-1);
       }
+      else if (rrdcreate_config.async)
+        return (0);
     }
   }
 

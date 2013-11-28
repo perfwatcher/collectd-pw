@@ -1,6 +1,6 @@
 /**
  * collectd - src/rrdtool.c
- * Copyright (C) 2006-2008  Florian octo Forster
+ * Copyright (C) 2006-2013  Florian octo Forster
  * Copyright (C) 2008-2008  Sebastian Harl
  * Copyright (C) 2009       Mariusz Gronczewski
  *
@@ -18,7 +18,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
  *
  * Authors:
- *   Florian octo Forster <octo at verplant.org>
+ *   Florian octo Forster <octo at collectd.org>
  *   Sebastian Harl <sh at tokkee.org>
  *   Mariusz Gronczewski <xani666 at gmail.com>
  **/
@@ -27,6 +27,7 @@
 #include "plugin.h"
 #include "common.h"
 #include "utils_avltree.h"
+#include "utils_random.h"
 #include "utils_rrdcreate.h"
 
 #include <rrd.h>
@@ -71,21 +72,6 @@ typedef struct rrd_queue_s rrd_queue_t;
 /*
  * Private variables
  */
-static const char *config_keys[] =
-{
-	"CacheTimeout",
-	"CacheFlush",
-	"DataDir",
-	"StepSize",
-	"HeartBeat",
-	"RRARows",
-	"RRATimespan",
-	"XFF",
-	"WritesPerSecond",
-	"RandomTimeout",
-	"RRA"
-};
-static int config_keys_num = STATIC_ARRAY_SIZE (config_keys);
 
 /* If datadir is zero, the daemon's basedir is used. If stepsize or heartbeat
  * is zero a default, depending on the `interval' member of the value list is
@@ -103,10 +89,14 @@ static rrdcreate_config_t rrdcreate_config =
 	/* timespans_num = */ 0,
 
 	/* rra_types = */ NULL,
-	/* rra_types_num = */ 0,
+
+	/* rra_param = */ NULL,
+	/* rra_param_num = */ 0,
 
 	/* consolidation_functions = */ NULL,
-	/* consolidation_functions_num = */ 0
+	/* consolidation_functions_num = */ 0,
+
+	/* async = */ 0
 };
 
 /* XXX: If you need to lock both, cache_lock and queue_lock, at the same time,
@@ -198,7 +188,7 @@ static int srrd_update (char *filename, char *template,
 } /* int srrd_update */
 #endif /* !HAVE_THREADSAFE_LIBRRD */
 
-static int value_list_to_string (char *buffer, int buffer_len,
+static int value_list_to_string_multiple (char *buffer, int buffer_len,
 		const data_set_t *ds, const value_list_t *vl)
 {
 	int offset;
@@ -242,49 +232,82 @@ static int value_list_to_string (char *buffer, int buffer_len,
 	} /* for ds->ds_num */
 
 	return (0);
+} /* int value_list_to_string_multiple */
+
+static int value_list_to_string (char *buffer, int buffer_len,
+		const data_set_t *ds, const value_list_t *vl)
+{
+	int status;
+	time_t tt;
+
+	if (ds->ds_num != 1)
+		return (value_list_to_string_multiple (buffer, buffer_len,
+					ds, vl));
+
+	tt = CDTIME_T_TO_TIME_T (vl->time);
+	switch (ds->ds[0].type)
+	{
+		case DS_TYPE_DERIVE:
+			status = ssnprintf (buffer, buffer_len, "%u:%"PRIi64,
+				(unsigned) tt, vl->values[0].derive);
+			break;
+		case DS_TYPE_GAUGE:
+			status = ssnprintf (buffer, buffer_len, "%u:%lf",
+				(unsigned) tt, vl->values[0].gauge);
+			break;
+		case DS_TYPE_COUNTER:
+			status = ssnprintf (buffer, buffer_len, "%u:%llu",
+				(unsigned) tt, vl->values[0].counter);
+			break;
+		case DS_TYPE_ABSOLUTE:
+			status = ssnprintf (buffer, buffer_len, "%u:%"PRIu64,
+				(unsigned) tt, vl->values[0].absolute);
+			break;
+		default:
+			return (EINVAL);
+	}
+
+	if ((status < 1) || (status >= buffer_len))
+		return (ENOMEM);
+
+	return (0);
 } /* int value_list_to_string */
 
-static int value_list_to_filename (char *buffer, int buffer_len,
-		const data_set_t __attribute__((unused)) *ds, const value_list_t *vl)
+static int value_list_to_filename (char *buffer, size_t buffer_size,
+		value_list_t const *vl)
 {
-	int offset = 0;
+	char const suffix[] = ".rrd";
 	int status;
+	size_t len;
 
 	if (datadir != NULL)
 	{
-		status = ssnprintf (buffer + offset, buffer_len - offset,
-				"%s/", datadir);
-		if ((status < 1) || (status >= buffer_len - offset))
-			return (-1);
-		offset += status;
+		size_t datadir_len = strlen (datadir) + 1;
+
+		if (datadir_len >= buffer_size)
+			return (ENOMEM);
+
+		sstrncpy (buffer, datadir, buffer_size);
+		buffer[datadir_len - 1] = '/';
+		buffer[datadir_len] = 0;
+
+		buffer += datadir_len;
+		buffer_size -= datadir_len;
 	}
 
-	status = ssnprintf (buffer + offset, buffer_len - offset,
-			"%s/", vl->host);
-	if ((status < 1) || (status >= buffer_len - offset))
-		return (-1);
-	offset += status;
+	status = FORMAT_VL (buffer, buffer_size, vl);
+	if (status != 0)
+		return (status);
 
-	if (strlen (vl->plugin_instance) > 0)
-		status = ssnprintf (buffer + offset, buffer_len - offset,
-				"%s-%s/", vl->plugin, vl->plugin_instance);
-	else
-		status = ssnprintf (buffer + offset, buffer_len - offset,
-				"%s/", vl->plugin);
-	if ((status < 1) || (status >= buffer_len - offset))
-		return (-1);
-	offset += status;
+	len = strlen (buffer);
+	assert (len < buffer_size);
+	buffer += len;
+	buffer_size -= len;
 
-	if (strlen (vl->type_instance) > 0)
-		status = ssnprintf (buffer + offset, buffer_len - offset,
-				"%s-%s.rrd", vl->type, vl->type_instance);
-	else
-		status = ssnprintf (buffer + offset, buffer_len - offset,
-				"%s.rrd", vl->type);
-	if ((status < 1) || (status >= buffer_len - offset))
-		return (-1);
-	offset += status;
+	if (buffer_size <= sizeof (suffix))
+		return (ENOMEM);
 
+	memcpy (buffer, suffix, sizeof (suffix));
 	return (0);
 } /* int value_list_to_filename */
 
@@ -656,11 +679,8 @@ static int rrd_cache_flush_identifier (cdtime_t timeout,
 
 static int64_t rrd_get_random_variation (void)
 {
-  double dbl_timeout;
-  cdtime_t ctm_timeout;
-  double rand_fact;
-  _Bool negative;
-  int64_t ret;
+  long min;
+  long max;
 
   if (random_timeout <= 0)
     return (0);
@@ -673,20 +693,10 @@ static int64_t rrd_get_random_variation (void)
 	  random_timeout = cache_timeout;
   }
 
-  /* This seems a bit complicated, but "random_timeout" is likely larger than
-   * RAND_MAX, so we can't simply use modulo here. */
-  dbl_timeout = CDTIME_T_TO_DOUBLE (random_timeout);
-  rand_fact = ((double) random ())
-    / ((double) RAND_MAX);
-  negative = (_Bool) (random () % 2);
+  max = (long) (random_timeout / 2);
+  min = max - ((long) random_timeout);
 
-  ctm_timeout = DOUBLE_TO_CDTIME_T (dbl_timeout * rand_fact);
-
-  ret = (int64_t) ctm_timeout;
-  if (negative)
-    ret *= -1;
-
-  return (ret);
+  return ((int64_t) cdrand_range (min, max));
 } /* int64_t rrd_get_random_variation */
 
 static int rrd_cache_insert (const char *filename,
@@ -871,19 +881,6 @@ static int rrd_cache_destroy (void) /* {{{ */
   return (0);
 } /* }}} int rrd_cache_destroy */
 
-static int rrd_compare_numeric (const void *a_ptr, const void *b_ptr)
-{
-	int a = *((int *) a_ptr);
-	int b = *((int *) b_ptr);
-
-	if (a < b)
-		return (-1);
-	else if (a > b)
-		return (1);
-	else
-		return (0);
-} /* int rrd_compare_numeric */
-
 static int rrd_write (const data_set_t *ds, const value_list_t *vl,
 		user_data_t __attribute__((unused)) *user_data)
 {
@@ -900,7 +897,7 @@ static int rrd_write (const data_set_t *ds, const value_list_t *vl,
 		return -1;
 	}
 
-	if (value_list_to_filename (filename, sizeof (filename), ds, vl) != 0)
+	if (value_list_to_filename (filename, sizeof (filename), vl) != 0)
 		return (-1);
 
 	if (value_list_to_string (values, sizeof (values), ds, vl) != 0)
@@ -914,6 +911,8 @@ static int rrd_write (const data_set_t *ds, const value_list_t *vl,
 					ds, vl, &rrdcreate_config);
 			if (status != 0)
 				return (-1);
+			else if (rrdcreate_config.async)
+				return (0);
 		}
 		else
 		{
@@ -952,178 +951,137 @@ static int rrd_flush (cdtime_t timeout, const char *identifier,
 	return (0);
 } /* int rrd_flush */
 
-static int rrd_config (const char *key, const char *value)
+static int rrd_config (oconfig_item_t *ci)
 {
-	if (strcasecmp ("CacheTimeout", key) == 0)
-	{
-		double tmp = atof (value);
-		if (tmp < 0)
-		{
-			fprintf (stderr, "rrdtool: `CacheTimeout' must "
-					"be greater than 0.\n");
-			ERROR ("rrdtool: `CacheTimeout' must "
-					"be greater than 0.\n");
-			return (1);
-		}
-		cache_timeout = DOUBLE_TO_CDTIME_T (tmp);
-	}
-	else if (strcasecmp ("CacheFlush", key) == 0)
-	{
-		int tmp = atoi (value);
-		if (tmp < 0)
-		{
-			fprintf (stderr, "rrdtool: `CacheFlush' must "
-					"be greater than 0.\n");
-			ERROR ("rrdtool: `CacheFlush' must "
-					"be greater than 0.\n");
-			return (1);
-		}
-		cache_flush_timeout = tmp;
-	}
-	else if (strcasecmp ("DataDir", key) == 0)
-	{
-		if (datadir != NULL)
-			free (datadir);
-		datadir = strdup (value);
-		if (datadir != NULL)
-		{
-			int len = strlen (datadir);
-			while ((len > 0) && (datadir[len - 1] == '/'))
-			{
-				len--;
-				datadir[len] = '\0';
-			}
-			if (len <= 0)
-			{
-				free (datadir);
-				datadir = NULL;
-			}
-		}
-	}
-	else if (strcasecmp ("StepSize", key) == 0)
-	{
-		unsigned long temp = strtoul (value, NULL, 0);
-		if (temp > 0)
-			rrdcreate_config.stepsize = temp;
-	}
-	else if (strcasecmp ("HeartBeat", key) == 0)
-	{
-		int temp = atoi (value);
-		if (temp > 0)
-			rrdcreate_config.heartbeat = temp;
-	}
-	else if (strcasecmp ("RRARows", key) == 0)
-	{
-		int tmp = atoi (value);
-		if (tmp <= 0)
-		{
-			fprintf (stderr, "rrdtool: `RRARows' must "
-					"be greater than 0.\n");
-			ERROR ("rrdtool: `RRARows' must "
-					"be greater than 0.\n");
-			return (1);
-		}
-		rrdcreate_config.rrarows = tmp;
-	}
-	else if (strcasecmp ("RRATimespan", key) == 0)
-	{
-		char *saveptr = NULL;
-		char *dummy;
-		char *ptr;
-		char *value_copy;
-		int *tmp_alloc;
+  int i;
 
-		value_copy = strdup (value);
-		if (value_copy == NULL)
-			return (1);
+  for (i = 0; i < ci->children_num; i++)
+  {
+    oconfig_item_t const *child = ci->children + i;
+    const char *key = child->key;
+    int status = 0;
 
-		dummy = value_copy;
-		while ((ptr = strtok_r (dummy, ", \t", &saveptr)) != NULL)
-		{
-			dummy = NULL;
-			
-			tmp_alloc = realloc (rrdcreate_config.timespans,
-					sizeof (int) * (rrdcreate_config.timespans_num + 1));
-			if (tmp_alloc == NULL)
-			{
-				fprintf (stderr, "rrdtool: realloc failed.\n");
-				ERROR ("rrdtool: realloc failed.\n");
-				free (value_copy);
-				return (1);
-			}
-			rrdcreate_config.timespans = tmp_alloc;
-			rrdcreate_config.timespans[rrdcreate_config.timespans_num] = atoi (ptr);
-			if (rrdcreate_config.timespans[rrdcreate_config.timespans_num] != 0)
-				rrdcreate_config.timespans_num++;
-		} /* while (strtok_r) */
-
-		qsort (/* base = */ rrdcreate_config.timespans,
-				/* nmemb  = */ rrdcreate_config.timespans_num,
-				/* size   = */ sizeof (rrdcreate_config.timespans[0]),
-				/* compar = */ rrd_compare_numeric);
-
-		free (value_copy);
-	}
-	else if (strcasecmp ("XFF", key) == 0)
-	{
-		double tmp = atof (value);
-		if ((tmp < 0.0) || (tmp >= 1.0))
-		{
-			fprintf (stderr, "rrdtool: `XFF' must "
-					"be in the range 0 to 1 (exclusive).");
-			ERROR ("rrdtool: `XFF' must "
-					"be in the range 0 to 1 (exclusive).");
-			return (1);
-		}
-		rrdcreate_config.xff = tmp;
-	}
-	else if (strcasecmp ("WritesPerSecond", key) == 0)
-	{
-		double wps = atof (value);
-
-		if (wps < 0.0)
-		{
-			fprintf (stderr, "rrdtool: `WritesPerSecond' must be "
-					"greater than or equal to zero.");
-			return (1);
-		}
-		else if (wps == 0.0)
-		{
-			write_rate = 0.0;
-		}
-		else
-		{
-			write_rate = 1.0 / wps;
-		}
-	}
-	else if (strcasecmp ("RandomTimeout", key) == 0)
+    if (strcasecmp ("CacheTimeout", key) == 0)
+    {
+      double tmp;
+      status = cf_util_get_double (child, &tmp);
+      if(status == 0) {
+        if (tmp < 0)
         {
-		double tmp;
+          fprintf (stderr, "rrdtool: `CacheTimeout' must "
+              "be greater than 0.\n");
+          ERROR ("rrdtool: `CacheTimeout' must "
+              "be greater than 0.\n");
+          return (1);
+        }
+        cache_timeout = DOUBLE_TO_CDTIME_T (tmp);
+      }
+    }
+    else if (strcasecmp ("CacheFlush", key) == 0)
+    {
+      int tmp = -1;
+      status = rc_config_get_int_positive (child, &tmp);
+      if(status == 0)
+        cache_flush_timeout = tmp;
+    }
+    else if (strcasecmp ("DataDir", key) == 0)
+    {
+      if (datadir != NULL)
+        free (datadir);
+      status = cf_util_get_string (child, &datadir);
+      if (status == 0)
+      {
+        int len = strlen (datadir);
 
-		tmp = atof (value);
-		if (tmp < 0.0)
-		{
-			fprintf (stderr, "rrdtool: `RandomTimeout' must "
-					"be greater than or equal to zero.\n");
-			ERROR ("rrdtool: `RandomTimeout' must "
-					"be greater then or equal to zero.");
-		}
-		else
-		{
-			random_timeout = DOUBLE_TO_CDTIME_T (tmp);
-		}
-	}
-	else if (strcasecmp ("RRA", key) == 0)
+        while ((len > 0) && (datadir[len - 1] == '/'))
         {
-			if(NULL != value) {
-				if(0 != cu_rrd_rra_types_set(&rrdcreate_config, value))
-					return(-1);
-			}
-	}
-	else
-	{
-		return (-1);
-	}
+          len--;
+          datadir[len] = 0;
+        }
+
+        if (len <= 0)
+          sfree (datadir);
+      }
+    }
+    else if (strcasecmp ("StepSize", key) == 0)
+    {
+      int tmp = -1;
+
+      status = rc_config_get_int_positive (child, &tmp);
+      if (status == 0)
+        rrdcreate_config.stepsize = (unsigned long) tmp;
+    }
+    else if (strcasecmp ("HeartBeat", key) == 0)
+      status = rc_config_get_int_positive (child, &rrdcreate_config.heartbeat);
+    else if (strcasecmp ("CreateFilesAsync", key) == 0)
+      status = cf_util_get_boolean (child, &rrdcreate_config.async);
+    else if (strcasecmp ("RRARows", key) == 0)
+      status = rc_config_get_int_positive (child, &rrdcreate_config.rrarows);
+    else if (strcasecmp ("RRATimespan", key) == 0)
+    {
+      int tmp = -1;
+      status = rc_config_get_int_positive (child, &tmp);
+      if (status == 0)
+        status = rc_config_add_timespan (tmp, &rrdcreate_config);
+    }
+    else if (strcasecmp ("XFF", key) == 0)
+      status = rc_config_get_xff (child, &rrdcreate_config.xff);
+    else if (strcasecmp ("WritesPerSecond", key) == 0)
+    {
+      double wps;
+      status = cf_util_get_double (child, &wps);
+
+      if(status == 0) {
+        if (wps < 0.0)
+        {
+          fprintf (stderr, "rrdtool: `WritesPerSecond' must be "
+              "greater than or equal to zero.");
+          return (1);
+        }
+        else if (wps == 0.0)
+        {
+          write_rate = 0.0;
+        }
+        else
+        {
+          write_rate = 1.0 / wps;
+        }
+      }
+    }
+    else if (strcasecmp ("RandomTimeout", key) == 0)
+    {
+      double tmp;
+      status = cf_util_get_double (child, &tmp);
+
+      if(status == 0) {
+        if (tmp < 0.0)
+        {
+          fprintf (stderr, "rrdtool: `RandomTimeout' must "
+              "be greater than or equal to zero.\n");
+          ERROR ("rrdtool: `RandomTimeout' must "
+              "be greater then or equal to zero.");
+        }
+        else
+        {
+          random_timeout = DOUBLE_TO_CDTIME_T (tmp);
+        }
+      }
+    }
+    else if (strcasecmp ("RRA", key) == 0)
+    {
+      if(0 != cu_rrd_rra_types_set(child, &rrdcreate_config))
+        return(-1);
+    }
+    else if (strcasecmp ("RRADef", key) == 0)
+    {
+      if(0 != cu_rrd_rra_param_append(child, &rrdcreate_config))
+        return(-1);
+    }
+    else
+    {
+      return (-1);
+    }
+  }
 	return (0);
 } /* int rrd_config */
 
@@ -1217,8 +1175,7 @@ static int rrd_init (void)
 
 void module_register (void)
 {
-	plugin_register_config ("rrdtool", rrd_config,
-			config_keys, config_keys_num);
+	plugin_register_complex_config ("rrdtool", rrd_config);
 	plugin_register_init ("rrdtool", rrd_init);
 	plugin_register_write ("rrdtool", rrd_write, /* user_data = */ NULL);
 	plugin_register_flush ("rrdtool", rrd_flush, /* user_data = */ NULL);
