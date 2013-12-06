@@ -1,3 +1,11 @@
+2013-11-06 version 5.4.0-20131206
+
+Removed patch/config_rra_in_rrdcached_plugin
+It is replaced with patch/rrdcreate_new_options
+
+New patchs :
+- patch/rrdcreate_new_options
+
 2013-11-18 version 5.4.0-20131118
 
 Update on :
