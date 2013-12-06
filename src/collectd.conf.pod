@@ -5300,6 +5300,62 @@ Set the "XFiles Factor". The default is 0.1. If unsure, don't set this option.
 I<Factor> must be in the range C<[0.0-1.0)>, i.e. between zero (inclusive) and
 one (exclusive).
 
+=item B<RRA> I<rra types or rra types list>
+
+Specify the RRA to create. If absent, AVERAGE, MIN and MAX will be created.
+You can either give a sublist of RRA to create (eg "AVERAGE MIN") or multiple
+lines with RRA sublists. Examples :
+
+RRA AVERAGE MIN MAX
+
+RRA AVERAGE MIN 
+
+RRA AVERAGE
+RRA MIN
+
+The first is the default
+The last two are equivalent.
+
+=item B<RRADef> I<timespan> I<pdp per row> I<precision> I<rra types list> I<XFF>
+
+Fully specify the RRA to create. This will define a set of 1 to 3 RRA (according
+to the types list you specify) with the given timespan, pdp per row and XFF.
+
+This will overwrite the definition of RRATimespan if given.
+
+I<timespan> : same as RRATimespan
+
+I<pdp per row> : defines the precision of a RRA (multiply with the interval to know it).
+0 means default.
+
+I<precision> : If I<pdp per row> is 0 and I<precision> is not 0, I<pdp per row> 
+will be computed : I<pdp per row> = max(I<precision> / Interval , 1) where the Interval is
+either forced with B<StepSize> or the interval of the metric.
+
+I<rra types list> : same as RRA. "default" means default (either from B<RRA> or the built-in
+default MIN MAX AVERAGE)
+
+I<XFF> : same as XFF. Not in range value means default (either from B<XFF> or
+the built-in default 0.1).
+
+When receiving metrics with interval=60, configuration is computed as it was :
+RRADef     3600   1 0 MIN MAX AVERAGE 0.1
+RRADef    86400   1 0 MIN MAX AVERAGE 0.1
+RRADef   604800   8 0 MIN MAX AVERAGE 0.1
+RRADef  2678400  37 0 MIN MAX AVERAGE 0.1
+RRADef 31622400 439 0 MIN MAX AVERAGE 0.1
+
+Note : when interval is different, the pdp per row may change if you do not use RRADef.
+This is why you may want to use RRADef instead of only RRATimespan.
+
+Another example : 1 set of RRA with min, max and average for 1 day with the best precision,
+then 1 RRA with only average for 1 year with a precision as 1 minute if possible. XFF is
+not specified so we get the default value.
+
+RRADef    86400 1  0 MIN MAX AVERAGE
+RRADef 31622400 0 60 AVERAGE
+
+ 
 =back
 
 =head2 Plugin C<rrdtool>
@@ -5422,6 +5478,22 @@ I<CacheTimeout>-I<RandomTimeout> and I<CacheTimeout>+I<RandomTimeout>. The
 intention is to avoid high load situations that appear when many values timeout
 at the same time. This is especially a problem shortly after the daemon starts,
 because all values were added to the internal cache at roughly the same time.
+
+=item B<RRA> I<rra types or rra types list>
+
+Specify the RRA to create. If absent, AVERAGE, MIN and MAX will be created.
+You can either give a sublist of RRA to create (eg "AVERAGE,MIN") or multiple
+lines with RRA sublists. Examples :
+
+RRA "AVERAGE,MIN,MAX"
+
+RRA "AVERAGE,MIN"
+
+RRA "AVERAGE"
+RRA "MIN
+
+The first is the default
+The last two are equivalent.
 
 =back
 
@@ -6616,37 +6688,6 @@ default value.
 
 Add the given string as an additional tag to the metric being sent to
 I<Riemann>.
-
-=back
-
-=head2 Plugin C<write_top>
-
-The C<write_top> plugin selects I<top> notifications and write them to disk.
-
-Synopsis:
-
- <Plugin write_top>
-     DataDir 
-     FlushWhenOlderThanMin 60
-     FlushWhenBiggerThanK 500
- </Plugin>
-
-=over 4
-
-=item B<DataDir> I<Directory>
-
-Set the directory to store Top-files under. Per default RRD-files are generated
-beneath the daemon's working directory, i.E<nbsp>e. the B<BaseDir>.
-
-=item B<FlushWhenOlderThanMin> I<Duration>
-
-When set, I<Duration> is the time (in minutes) after when all the top data
-will be flushed on disk for one host.
-
-=item B<FlushWhenBiggerThanK> I<Size>
-
-When set, I<Size> is the maximum size (in Kb) of memory used for the cache of one host
-for top data. When more memory is needed for one host, the data will be flushed.
 
 =back
 
