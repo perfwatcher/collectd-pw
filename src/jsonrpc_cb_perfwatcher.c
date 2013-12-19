@@ -74,6 +74,7 @@ static int jsonrpc_spawn_process(const char *path, char * const argv[], unsigned
         int pos = 0;
         int pid = 0;
         int stdpipe[2];
+        int new_stdout;
 
         *pngdata = NULL;
         *pngsize = 0;
@@ -91,7 +92,10 @@ static int jsonrpc_spawn_process(const char *path, char * const argv[], unsigned
                  * may fail because of a lock. Do not use them here.
                  */
                         close(1);
-                        dup(stdpipe[1]);
+                        if(-1 == (new_stdout = dup(stdpipe[1]))) {
+                                perror("Could not dup()");
+                                exit(EXIT_FAILURE);
+                        }
                         close(stdpipe[0]);
                         execv(path, argv);
                         /* This should not be executed */
