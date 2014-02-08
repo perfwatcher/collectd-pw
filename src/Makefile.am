@@ -828,6 +828,20 @@ collectd_LDADD += "-dlopen" notify_email.la
 collectd_DEPENDENCIES += notify_email.la
 endif
 
+if BUILD_PLUGIN_NOTIFY_SNMP
+pkglib_LTLIBRARIES += notify_snmp.la
+notify_snmp_la_SOURCES = notify_snmp.c
+notify_snmp_la_LDFLAGS = -module -avoid-version
+notify_snmp_la_CFLAGS = $(AM_CFLAGS)
+notify_snmp_la_LIBADD = -lpthread
+if BUILD_WITH_LIBNETSNMP
+notify_snmp_la_CFLAGS += $(BUILD_WITH_LIBSNMP_CFLAGS)
+notify_snmp_la_LIBADD += $(BUILD_WITH_LIBSNMP_LIBS)
+endif
+collectd_LDADD += "-dlopen" notify_snmp.la
+collectd_DEPENDENCIES += notify_snmp.la
+endif
+
 if BUILD_PLUGIN_NTPD
 pkglib_LTLIBRARIES += ntpd.la
 ntpd_la_SOURCES = ntpd.c
