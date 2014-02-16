@@ -136,10 +136,15 @@ jsonrpc_spawn_process__internal_error:
 jsonrpc_spawn_process__free_and_return:
         close(stdpipe[0]);
         if(0 != pid) {
-                int status;
+                int status = 0;
                 kill(pid, SIGQUIT);
                 waitpid(pid, &status, 0);
-                if(0 != WEXITSTATUS(status)) {
+                if(WIFEXITED(status) && (0 != WEXITSTATUS(status))) {
+                        if(WIFSIGNALED(status)) {
+                                ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "rrdtool graph failed with status=%d due to signal %d %s(%s:%d)", WEXITSTATUS(status), WTERMSIG(status), WCOREDUMP(status)?"Check for a core ":"", __FILE__, __LINE__);
+                        } else {
+                                ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "rrdtool graph failed with status=%d %s(%s:%d)", WEXITSTATUS(status), WCOREDUMP(status)?"Check for a core ":"", __FILE__, __LINE__);
+                        }
                         if(*pngdata) free(*pngdata);
                         *pngdata = NULL;
                         *pngsize = 0;
