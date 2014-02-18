@@ -181,6 +181,10 @@ config.status: configure $(DPATCH_STAMPFN)
 		JAVA_LDFLAGS="$(JAVA_LDFLAGS)" \
 		|| ( status=$$?; cat config.log; exit $$status )
 
+configure:
+	dh_testdir
+	./build.sh
+
 build: build-arch build-indep
 build-arch: build-stamp
 build-indep: build-stamp
@@ -207,6 +211,7 @@ clean: unpatch
 	
 	dh_clean
 	debconf-updatepo
+	./clean.sh
 
 install-indep:
 	dh_testdir
