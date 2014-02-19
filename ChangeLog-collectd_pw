@@ -1,3 +1,10 @@
+2014-02-19 version 5.4.0-20140219
+
+Update on :
+
+- plugin/jsonrpc
+- patch/protocols_solaris
+
 2013-11-06 version 5.4.0-20131206
 
 Removed patch/config_rra_in_rrdcached_plugin
