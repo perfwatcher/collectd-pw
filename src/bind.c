@@ -1386,6 +1386,10 @@ static int bind_init (void) /* {{{ */
   if (curl != NULL)
     return (0);
 
+  /* Call this while collectd is still single-threaded to avoid
+   * initialization issues in libgcrypt. */
+  curl_global_init (CURL_GLOBAL_SSL);
+
   curl = curl_easy_init ();
   if (curl == NULL)
   {
