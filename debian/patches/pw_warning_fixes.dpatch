@@ -5,21 +5,6 @@
 ## DP: No description.
 
 @DPATCH@
-diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' collectd-5.4.0.20131206~/src/jsonrpc_cb_perfwatcher.c collectd-5.4.0.20131206/src/jsonrpc_cb_perfwatcher.c
---- collectd-5.4.0.20131206~/src/jsonrpc_cb_perfwatcher.c	2014-02-12 15:32:06.050713232 -0600
-+++ collectd-5.4.0.20131206/src/jsonrpc_cb_perfwatcher.c	2014-02-12 15:32:07.134736241 -0600
-@@ -91,7 +91,10 @@
-                  * may fail because of a lock. Do not use them here.
-                  */
-                         close(1);
--                        dup(stdpipe[1]);
-+                        if (dup(stdpipe[1]) == -1) {
-+                                perror("dup() failed");
-+                                exit(EXIT_FAILURE);
-+                        }
-                         close(stdpipe[0]);
-                         execv(path, argv);
-                         /* This should not be executed */
 diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' collectd-5.4.0.20131206~/src/procnetstat.c collectd-5.4.0.20131206/src/procnetstat.c
 --- collectd-5.4.0.20131206~/src/procnetstat.c	2013-12-06 04:18:20.624975880 -0600
 +++ collectd-5.4.0.20131206/src/procnetstat.c	2014-02-12 15:32:28.331187295 -0600
