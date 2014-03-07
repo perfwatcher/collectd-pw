@@ -1,0 +1,61 @@
+2014-02-19 version 5.4.0-20140219
+
+Update on :
+
+- plugin/jsonrpc
+- patch/protocols_solaris
+
+2013-11-06 version 5.4.0-20131206
+
+Removed patch/config_rra_in_rrdcached_plugin
+It is replaced with patch/rrdcreate_new_options
+
+New patchs :
+- patch/rrdcreate_new_options
+
+2013-11-18 version 5.4.0-20131118
+
+Update on :
+
+- plugin/jsonrpc
+
+2013-10-29 version 5.4.0-20131029
+
+New patchs :
+- compilation_fix/ethstat
+
+New plugins :
+- plugin/procnetstat
+
+Update on :
+
+- plugin/basic_aggregator
+- plugin/jsonrpc
+- patch/perfwatcher_addons
+
+2013-08-30 version 5.4.0-20130830
+
+Include patchs :
+
+- patch/compilation_fix_solaris
+- patch/config_rra_in_rrdcached_plugin
+- patch/cpu
+- patch/disk_solaris
+- patch/fix_for_large_MaxPacketSize
+- patch/fix_interfaces_solaris
+- patch/logfile
+- patch/memory_percent
+- patch/nfs_stats_with_network_plugin
+- patch/notification_forwarding
+- patch/perfwatcher_addons
+- patch/process
+- patch/protocols_solaris
+- plugin/basic_aggregator
+- plugin/jsonrpc
+- plugin/notify_file
+- plugin/sysconfig
+- plugin/top
+- plugin/write_top
+
+
+Sources from upstream collectd (branch collectd-5.4 commit f6b9d3b2d95a140eaf9537cae08069b6856684b2)

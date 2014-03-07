@@ -217,6 +217,14 @@ collectd_LDADD += "-dlopen" ascent.la
 collectd_DEPENDENCIES += ascent.la
 endif
 
+if BUILD_PLUGIN_BASIC_AGGREGATOR
+pkglib_LTLIBRARIES += basic_aggregator.la
+basic_aggregator_la_SOURCES = basic_aggregator.c
+basic_aggregator_la_LDFLAGS = -module -avoid-version
+collectd_LDADD += "-dlopen" basic_aggregator.la
+collectd_DEPENDENCIES += basic_aggregator.la
+endif
+
 if BUILD_PLUGIN_BATTERY
 pkglib_LTLIBRARIES += battery.la
 battery_la_SOURCES = battery.c
@@ -307,6 +315,13 @@ collectd_LDADD += "-dlopen" csv.la
 collectd_DEPENDENCIES += csv.la
 endif
 
+if BUILD_PLUGIN_TOP
+pkglib_LTLIBRARIES += top.la
+top_la_SOURCES = top.c
+top_la_LDFLAGS = -module -avoid-version
+collectd_LDADD += "-dlopen" top.la
+collectd_DEPENDENCIES += top.la
+endif
 if BUILD_PLUGIN_CURL
 pkglib_LTLIBRARIES += curl.la
 curl_la_SOURCES = curl.c
@@ -319,6 +334,16 @@ curl_la_CFLAGS += $(BUILD_WITH_LIBCURL_CFLAGS)
 curl_la_LIBADD += $(BUILD_WITH_LIBCURL_LIBS)
 endif
 collectd_DEPENDENCIES += curl.la
+endif
+
+if BUILD_PLUGIN_NOTIFY_FILE
+pkglib_LTLIBRARIES += notify_file.la
+notify_file_la_SOURCES = notify_file.c
+notify_file_la_LDFLAGS = -module -avoid-version
+collectd_LDADD += "-dlopen" notify_file.la
+collectd_DEPENDENCIES += notify_file.la
+notify_file_la_CFLAGS = $(AM_CFLAGS) ${BUILD_WITH_LIBZ_CPPFLAGS}
+notify_file_la_LIBADD = ${BUILD_WITH_LIBZ_LIBS}
 endif
 
 if BUILD_PLUGIN_CURL_JSON
@@ -539,6 +564,39 @@ java_la_LDFLAGS = -module -avoid-version $(JAVA_LDFLAGS)
 java_la_LIBADD = $(JAVA_LIBS)
 collectd_LDADD += "-dlopen" java.la
 collectd_DEPENDENCIES += java.la
+endif
+
+if BUILD_PLUGIN_JSONRPC
+pkglib_LTLIBRARIES += jsonrpc.la
+jsonrpc_la_SOURCES = jsonrpc.c jsonrpc.h
+jsonrpc_la_LDFLAGS = -module -avoid-version $(BUILD_WITH_LIBMICROHTTPD_LDFLAGS) $(BUILD_WITH_LIBJSON_LDFLAGS)
+jsonrpc_la_CFLAGS = $(AM_CFLAGS) $(BUILD_WITH_LIBMICROHTTPD_CPPFLAGS) $(BUILD_WITH_LIBJSON_CPPFLAGS) $(BUILD_WITH_LIBCRYPT_CFLAGS)
+jsonrpc_la_LIBADD = $(BUILD_WITH_LIBMICROHTTPD_LIBS) $(BUILD_WITH_LIBJSON_LIBS) $(BUILD_WITH_LIBCRYPT_LIBS)
+collectd_LDADD += "-dlopen" jsonrpc.la
+collectd_DEPENDENCIES += jsonrpc.la
+if BUILD_JSONRPC_USE_BASE
+jsonrpc_la_SOURCES += jsonrpc_cb_base.c jsonrpc_cb_base.h
+endif
+# Define JSONRPC_GRAPH_RRDS_WITH_LIBRRD if you want to use internal rrd_graph_v() from librrd.
+# You may prefer to fork+exec rrdtool graph if you consider that librrd
+# rrd_graph_v() and its dependancies (pango at least) is not sure enough
+# (memory leaks ?) inside a daemonized web server.
+#
+# Use JSONRPC_GRAPH_RRDS_WITH_LIBRRD at your own risk !
+#
+#BUILD_WITH_LIBRRD_CFLAGS += -DJSONRPC_GRAPH_RRDS_WITH_LIBRRD
+#
+if BUILD_JSONRPC_USE_PERFWATCHER
+# Note : include base64 here. If needed somewhere else, maybe something better should be implemented ?
+jsonrpc_la_SOURCES += jsonrpc_cb_perfwatcher.c jsonrpc_cb_perfwatcher.h base64.c base64.h
+jsonrpc_la_CFLAGS += $(BUILD_WITH_LIBRRD_CFLAGS)
+jsonrpc_la_LIBADD += $(BUILD_WITH_LIBRRD_LDFLAGS)
+endif
+if BUILD_JSONRPC_USE_TOPPS
+jsonrpc_la_SOURCES += jsonrpc_cb_topps.c jsonrpc_cb_topps.h
+jsonrpc_la_LDFLAGS += $(BUILD_WITH_LIBZ_LIBS)
+jsonrpc_la_CFLAGS += $(BUILD_WITH_LIBZ_CPPFLAGS)
+endif
 endif
 
 if BUILD_PLUGIN_LIBVIRT
@@ -996,6 +1054,15 @@ processes_la_LIBADD += -lkvm
 endif
 endif
 
+if BUILD_PLUGIN_PROCNETSTAT
+pkglib_LTLIBRARIES += procnetstat.la
+procnetstat_la_SOURCES = procnetstat.c
+procnetstat_la_LDFLAGS = -module -avoid-version
+procnetstat_la_LIBADD =
+collectd_LDADD += "-dlopen" procnetstat.la
+collectd_DEPENDENCIES += procnetstat.la
+endif
+
 if BUILD_PLUGIN_PROTOCOLS
 pkglib_LTLIBRARIES += protocols.la
 protocols_la_SOURCES = protocols.c
@@ -1132,6 +1199,14 @@ syslog_la_SOURCES = syslog.c
 syslog_la_LDFLAGS = -module -avoid-version
 collectd_LDADD += "-dlopen" syslog.la
 collectd_DEPENDENCIES += syslog.la
+endif
+
+if BUILD_PLUGIN_SYSCONFIG
+pkglib_LTLIBRARIES += sysconfig.la
+sysconfig_la_SOURCES = sysconfig.c
+sysconfig_la_LDFLAGS = -module -avoid-version
+collectd_LDADD += "-dlopen" sysconfig.la
+collectd_DEPENDENCIES += sysconfig.la
 endif
 
 if BUILD_PLUGIN_TABLE
@@ -1417,6 +1492,17 @@ collectd_LDADD += "-dlopen" write_riemann.la
 collectd_DEPENDENCIES += write_riemann.la
 endif
 
+if BUILD_PLUGIN_WRITE_TOP
+pkglib_LTLIBRARIES += write_top.la
+write_top_la_SOURCES = write_top.c 
+write_top_la_LDFLAGS = -module -avoid-version
+write_top_la_CFLAGS = $(AM_CFLAGS) ${BUILD_WITH_LIBZ_CPPFLAGS}
+write_top_la_LIBADD = ${BUILD_WITH_LIBZ_LIBS}
+collectd_LDADD += "-dlopen" write_top.la
+collectd_DEPENDENCIES += write_top.la
+endif
+
+
 if BUILD_PLUGIN_XMMS
 pkglib_LTLIBRARIES += xmms.la
 xmms_la_SOURCES = xmms.c
@@ -1444,6 +1530,7 @@ endif
 BUILT_SOURCES += $(dist_man_MANS)
 
 dist_man_MANS = collectd.1 \
+		collectd-basic_aggregator.5 \
 		collectd.conf.5 \
 		collectd-email.5 \
 		collectd-exec.5 \
@@ -1462,8 +1549,10 @@ dist_man_MANS = collectd.1 \
 #collectd_1_SOURCES = collectd.pod
 
 EXTRA_DIST = types.db
+EXTRA_DIST += types-perfwatcher.db
 
 EXTRA_DIST +=   collectd.conf.pod \
+		collectd-basic_aggregator.pod \
 		collectd-email.pod \
 		collectd-exec.pod \
 		collectdctl.pod \
@@ -1527,11 +1616,13 @@ install-exec-hook:
 	fi; \
 	$(mkinstalldirs) $(DESTDIR)$(pkgdatadir)
 	$(INSTALL) -m 0644 $(srcdir)/types.db $(DESTDIR)$(pkgdatadir)/types.db;
+	$(INSTALL) -m 0644 $(srcdir)/types-perfwatcher.db $(DESTDIR)$(pkgdatadir)/types-perfwatcher.db;
 	$(INSTALL) -m 0644 $(srcdir)/postgresql_default.conf \
 		$(DESTDIR)$(pkgdatadir)/postgresql_default.conf;
 
 uninstall-hook:
 	rm -f $(DESTDIR)$(pkgdatadir)/types.db;
+	rm -f $(DESTDIR)$(pkgdatadir)/types-perfwatcher.db;
 	rm -f $(DESTDIR)$(sysconfdir)/collectd.conf
 	rm -f $(DESTDIR)$(pkgdatadir)/postgresql_default.conf;
 

@@ -1,0 +1,25 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## pw_warning_fixes.dpatch by Brian Kroth <bpkroth@gmail.com>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' collectd-5.4.0.20131206~/src/procnetstat.c collectd-5.4.0.20131206/src/procnetstat.c
+--- collectd-5.4.0.20131206~/src/procnetstat.c	2013-12-06 04:18:20.624975880 -0600
++++ collectd-5.4.0.20131206/src/procnetstat.c	2014-02-12 15:32:28.331187295 -0600
+@@ -712,12 +712,14 @@
+             if(0 < il->age) continue; /* old inode */
+             if(0 == compare_ip_and_port(ps,il)) {
+                 char plugin_instance[DATA_MAX_NAME_LEN];
++                /* Fixing unused warnings.
+                 char *name;
+                 if(ps->re) {
+                     name = ps->name;
+                 } else {
+                     name = pse->name;
+                 }
++                */
+                 if(ps->ip[0]) {
+                     if(ps->port) {
+                         strncpy(plugin_instance, ps->name, sizeof(plugin_instance));

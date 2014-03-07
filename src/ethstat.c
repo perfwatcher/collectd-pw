@@ -38,6 +38,7 @@
 #if HAVE_LINUX_SOCKIOS_H
 # include <linux/sockios.h>
 #endif
+#include <linux/types.h>
 #if HAVE_LINUX_ETHTOOL_H
 # include <linux/ethtool.h>
 #endif

@@ -1,5 +1,7 @@
 dnl Process this file with autoconf to produce a configure script.
+AC_PREREQ([2.60])
 AC_INIT(collectd, [m4_esyscmd(./version-gen.sh)])
+AC_USE_SYSTEM_EXTENSIONS
 AC_CONFIG_SRCDIR(src/collectd.c)
 AC_CONFIG_HEADERS(src/config.h)
 AC_CONFIG_AUX_DIR([libltdl/config])
@@ -380,6 +382,7 @@ fi
 
 # For load module
 # For the processes plugin
+# For the netstat plugin
 # For users module
 AC_CHECK_HEADERS(sys/loadavg.h linux/config.h utmp.h utmpx.h)
 
@@ -441,6 +444,7 @@ AC_CHECK_HEADERS(linux/ethtool.h,
 #if HAVE_LINUX_SOCKIOS_H
 # include <linux/sockios.h>
 #endif
+#include <linux/types.h>
     ])
 
 # For ipvs module
@@ -575,6 +579,40 @@ AC_TYPE_PID_T
 AC_TYPE_SIZE_T
 AC_TYPE_UID_T
 AC_HEADER_TIME
+AC_C_RESTRICT
+AH_BOTTOM([
+/* Code from coreutils/lib/config.h
+ * This section of code is necessary for base64.c/base64.h to compile as is.
+ */
+
+/* Start of code from coreutils/lib/config.h */
+/* Define as a marker that can be attached to declarations that might not
+    be used.  This helps to reduce warnings, such as from
+    GCC -Wunused-parameter.  */
+#if __GNUC__ >= 3 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 7)
+# define _GL_UNUSED __attribute__ ((__unused__))
+#else
+# define _GL_UNUSED
+#endif
+/* The name _UNUSED_PARAMETER_ is an earlier spelling, although the name
+   is a misnomer outside of parameter lists.  */
+#define _UNUSED_PARAMETER_ _GL_UNUSED
+
+/* The __pure__ attribute was added in gcc 2.96.  */
+#if __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 96)
+# define _GL_ATTRIBUTE_PURE __attribute__ ((__pure__))
+#else
+# define _GL_ATTRIBUTE_PURE /* empty */
+#endif
+
+/* The __const__ attribute was added in gcc 2.95.  */
+#if __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 95)
+# define _GL_ATTRIBUTE_CONST __attribute__ ((__const__))
+#else
+# define _GL_ATTRIBUTE_CONST /* empty */
+#endif
+/* End of code from coreutils/lib/config.h */
+])
 
 #
 # Checks for library functions.
@@ -590,6 +628,109 @@ if test "x$GCC" = "xyes"
 then
 	CFLAGS="$CFLAGS -Wall -Werror"
 fi
+
+# Check for crypt() in libcrypt
+build_with_libcrypt="no"
+save_libs_for_crypt_r_test="$LIBS"
+BUILD_WITH_LIBCRYPT_CFLAGS=""
+BUILD_WITH_LIBCRYPT_LIBS=""
+AC_SEARCH_LIBS(crypt, [crypt],
+			[build_with_libcrypt="yes"],
+			[build_with_libcrypt="no"],
+			[])
+LIBS="${save_libs_for_crypt_r_test}"
+if test "x$build_with_libcrypt" = "xyes"
+then
+  case "x$ac_cv_search_crypt" in
+    no*) BUILD_WITH_LIBCRYPT_LIBS="" ;;
+	*) BUILD_WITH_LIBCRYPT_LIBS="$ac_cv_search_crypt" ;;
+  esac
+  AC_DEFINE(HAVE_CRYPT, 1, [Define if the crypt(3) function is available.])
+fi
+
+# Check for crypt_r
+have_crypt_r="no"
+save_libs_for_crypt_r_test="$LIBS"
+LIBS="$LIBS $BUILD_WITH_LIBCRYPT_LIBS"
+AC_CACHE_CHECK([for crypt_r],
+  [c_cv_have_crypt_r_default],
+  AC_LINK_IFELSE(
+    AC_LANG_PROGRAM(
+    [[[[
+#include <stdlib.h>
+#include <stdio.h>
+#include <crypt.h>
+    ]]]],
+    [[[[
+      char *pass = "password";
+      char *salt = "sa";
+      struct crypt_data d;
+      char *s;
+
+      d.initialized = 0;
+      s = crypt_r(pass, salt, &d);
+      assert(NULL != s);
+    ]]]]),
+    [
+    c_cv_have_crypt_r_default="yes"
+    have_crypt_r="yes"
+    ],
+    [c_cv_have_crypt_r_default="no"]
+  )
+)
+
+# Check for crypt_r as a GNU extension if not found yet
+if test "x$c_cv_have_crypt_r_default" = "xno"
+then
+  save_cflags_for_crypt_r_test="$CFLAGS"
+  CFLAGS="$CFLAGS -D_GNU_SOURCE"
+
+  AC_CACHE_CHECK([if crypt_r needs _GNU_SOURCE],
+    [c_cv_have_crypt_r_gnusource],
+    AC_LINK_IFELSE(
+      AC_LANG_PROGRAM(
+      [[[[
+#include <stdlib.h>
+#include <stdio.h>
+#include <crypt.h>
+#include <assert.h>
+      ]]]],
+      [[[[
+      char *pass = "password";
+      char *salt = "sa";
+      struct crypt_data d;
+      char *s;
+
+      d.initialized = 0;
+      s = crypt_r(pass, salt, &d);
+      assert(NULL != s);
+      ]]]]),
+      [
+        c_cv_have_crypt_r_gnusource="yes"
+        have_crypt_r="yes"
+      ],
+      [c_cv_have_crypt_r_gnusource="no"]
+    )
+  )
+
+  if test "x$c_cv_have_crypt_r_gnusource" = "xyes"
+  then
+  	BUILD_WITH_LIBCRYPT_CFLAGS="-D_GNU_SOURCE"
+  fi
+
+  CFLAGS="${save_cflags_for_crypt_r_test}"
+fi
+
+LIBS="${save_libs_for_crypt_r_test}"
+if test "x$have_crypt_r" = "xyes"
+then
+	AC_DEFINE(HAVE_CRYPT_R, 1, [Define if the crypt_r(3) function is available.])
+else
+    AC_MSG_WARN([crypt_r isn't available. Will use crypt(3) with a mutex when needed (too bad)])
+fi
+
+AC_SUBST(BUILD_WITH_LIBCRYPT_CFLAGS)
+AC_SUBST(BUILD_WITH_LIBCRYPT_LIBS)
 
 AC_CACHE_CHECK([for strtok_r],
   [c_cv_have_strtok_r_default],
@@ -1206,10 +1347,9 @@ if test "x$have_getmntent" = "xgen"; then
 fi
 
 # Check for htonll
-AC_MSG_CHECKING([if have htonll defined])
-
-    have_htonll="no"
-    AC_LINK_IFELSE([AC_LANG_PROGRAM(
+AC_CACHE_CHECK([if have htonll defined],
+	           [c_cv_have_htonll],
+	           AC_LINK_IFELSE([AC_LANG_PROGRAM(
 [[[
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -1221,12 +1361,14 @@ AC_MSG_CHECKING([if have htonll defined])
           return htonll(0);
 ]]]
     )],
-    [
-      have_htonll="yes"
-      AC_DEFINE(HAVE_HTONLL, 1, [Define if the function htonll exists.])
-    ])
- 
-AC_MSG_RESULT([$have_htonll])
+    [c_cv_have_htonll="yes"],
+    [c_cv_have_htonll="no"]
+	)
+)
+if test "x$c_cv_have_htonll" = "xyes"
+then
+    AC_DEFINE(HAVE_HTONLL, 1, [Define if the function htonll exists.])
+fi
 
 # Check for structures
 AC_CHECK_MEMBERS([struct if_data.ifi_ibytes, struct if_data.ifi_opackets, struct if_data.ifi_ierrors],
@@ -1405,6 +1547,192 @@ if test "x$with_procinfo" = "xyes"
 then
 	 AC_DEFINE(HAVE_PROCINFO_H, 1, [Define to 1 if you have the procinfo.h])
 fi
+
+# --with-libjson {{{
+AC_ARG_WITH(libjson, [AS_HELP_STRING([--with-libjson@<:@=PREFIX@:>@], [Path to libjson.])],
+[
+ if test "x$withval" = "xyes"
+ then
+	 with_libjson="yes"
+	 LIBJSON_CPPFLAGS="$LIBJSON_CPPFLAGS -I$withval/include"
+	 LIBJSON_LDFLAGS="$LIBJSON_LDFLAGS -L$withval/lib"
+ else if test "x$withval" = "xno"
+ then
+	 with_libjson="no"
+ else
+	 with_libjson="yes"
+	 LIBJSON_CPPFLAGS="$LIBJSON_CPPFLAGS -I$withval/include"
+	 LIBJSON_LDFLAGS="$LIBJSON_LDFLAGS -L$withval/lib"
+ fi; fi
+],
+[with_libjson="yes"])
+
+SAVE_CPPFLAGS="$CPPFLAGS"
+SAVE_LDFLAGS="$LDFLAGS"
+
+CPPFLAGS="$CPPFLAGS $LIBJSON_CPPFLAGS"
+LDFLAGS="$LDFLAGS $LIBJSON_LDFLAGS"
+
+if test "x$with_libjson" = "xyes"
+then
+	if test "x$LIBJSON_CPPFLAGS" != "x"
+	then
+		AC_MSG_NOTICE([libjson CPPFLAGS: $LIBJSON_CPPFLAGS])
+	fi
+	AC_CHECK_HEADERS(json/json.h,
+	[with_libjson="yes"],
+	[with_libjson="no (json.h not found)"])
+fi
+if test "x$with_libjson" = "xyes"
+then
+	if test "x$LIBJSON_LDFLAGS" != "x"
+	then
+		AC_MSG_NOTICE([libjson LDFLAGS: $LIBJSON_LDFLAGS])
+	fi
+	AC_CHECK_LIB(json, json_object_new_object,
+	[with_libjson="yes"],
+	[with_libjson="no (symbol 'json_object_new_object' not found)"])
+fi
+
+CPPFLAGS="$SAVE_CPPFLAGS"
+LDFLAGS="$SAVE_LDFLAGS"
+
+if test "x$with_libjson" = "xyes"
+then
+	BUILD_WITH_LIBJSON_CPPFLAGS="$LIBJSON_CPPFLAGS"
+	BUILD_WITH_LIBJSON_LDFLAGS="$LIBJSON_LDFLAGS"
+	BUILD_WITH_LIBJSON_LIBS="-ljson"
+	AC_SUBST(BUILD_WITH_LIBJSON_CPPFLAGS)
+	AC_SUBST(BUILD_WITH_LIBJSON_LDFLAGS)
+	AC_SUBST(BUILD_WITH_LIBJSON_LIBS)
+fi
+AM_CONDITIONAL(BUILD_WITH_LIBJSON, test "x$with_libjson" = "xyes")
+# }}}
+
+# --with-jsonrpc_base {{{
+# Enable or not the base jsonrpc callbacks
+AC_ARG_WITH(jsonrpc_base,
+	      [AS_HELP_STRING([--with-jsonrpc_base], [Enable base callbacks for jsonrpc plugin (default=yes)])],
+[
+ if test "x$withval" = "xyes"
+ then
+	 with_jsonrpc_base="yes"
+ else if test "x$withval" = "xno"
+ then
+	 with_jsonrpc_base="no"
+ else
+	 with_jsonrpc_base="yes"
+ fi; fi
+],
+[with_jsonrpc_base="yes"])
+if test "x$with_jsonrpc_base" = "xyes"
+then
+	AC_DEFINE(JSONRPC_USE_BASE,        1, [Define to enable jsonrpc base callbacks.])
+	AM_CONDITIONAL(BUILD_JSONRPC_USE_BASE, test "x$with_jsonrpc_base" = "xyes")
+fi
+# }}}
+
+# --with-jsonrpc_perfwatcher {{{
+# Enable or not the perfwatcher jsonrpc callbacks
+AC_ARG_WITH(jsonrpc_perfwatcher,
+	      [AS_HELP_STRING([--with-jsonrpc_perfwatcher], [Enable perfwatcher callbacks for jsonrpc plugin (default=yes)])],
+[
+ if test "x$withval" = "xyes"
+ then
+	 with_jsonrpc_perfwatcher="yes"
+ else if test "x$withval" = "xno"
+ then
+	 with_jsonrpc_perfwatcher="no"
+ else
+	 with_jsonrpc_perfwatcher="yes"
+ fi; fi
+],
+[with_jsonrpc_perfwatcher="yes"])
+if test "x$with_jsonrpc_perfwatcher" = "xyes"
+then
+	AC_DEFINE(JSONRPC_USE_PERFWATCHER,        1, [Define to enable jsonrpc perfwatcher callbacks.])
+	AM_CONDITIONAL(BUILD_JSONRPC_USE_PERFWATCHER, test "x$with_jsonrpc_perfwatcher" = "xyes")
+fi
+# }}}
+
+# --with-jsonrpc_topps {{{
+# Enable or not the topps jsonrpc callbacks
+AC_ARG_WITH(jsonrpc_topps,
+	      [AS_HELP_STRING([--with-jsonrpc_topps], [Enable topps callbacks for jsonrpc plugin (default=yes)])],
+[
+ if test "x$withval" = "xyes"
+ then
+	 with_jsonrpc_topps="yes"
+ else if test "x$withval" = "xno"
+ then
+	 with_jsonrpc_topps="no"
+ else
+	 with_jsonrpc_topps="yes"
+ fi; fi
+],
+[with_jsonrpc_topps="yes"])
+# }}}
+
+# --with-libmicrohttpd {{{
+AC_ARG_WITH(libmicrohttpd, [AS_HELP_STRING([--with-libmicrohttpd@<:@=PREFIX@:>@], [Path to libmicrohttpd.])],
+[
+ if test "x$withval" = "xyes"
+ then
+	 with_libmicrohttpd="yes"
+	 LIBMICROHTTPD_CPPFLAGS="$LIBMICROHTTPD_CPPFLAGS -I$withval/include"
+	 LIBMICROHTTPD_LDFLAGS="$LIBMICROHTTPD_LDFLAGS -L$withval/lib"
+ else if test "x$withval" = "xno"
+ then
+	 with_libmicrohttpd="no"
+ else
+	 with_libmicrohttpd="yes"
+	 LIBMICROHTTPD_CPPFLAGS="$LIBMICROHTTPD_CPPFLAGS -I$withval/include"
+	 LIBMICROHTTPD_LDFLAGS="$LIBMICROHTTPD_LDFLAGS -L$withval/lib"
+ fi; fi
+],
+[with_libmicrohttpd="yes"])
+
+SAVE_CPPFLAGS="$CPPFLAGS"
+SAVE_LDFLAGS="$LDFLAGS"
+
+CPPFLAGS="$CPPFLAGS $LIBMICROHTTPD_CPPFLAGS"
+LDFLAGS="$LDFLAGS $LIBMICROHTTPD_LDFLAGS"
+
+if test "x$with_libmicrohttpd" = "xyes"
+then
+	if test "x$LIBMICROHTTPD_CPPFLAGS" != "x"
+	then
+		AC_MSG_NOTICE([libmicrohttpd CPPFLAGS: $LIBMICROHTTPD_CPPFLAGS])
+	fi
+	AC_CHECK_HEADERS(microhttpd.h,
+	[with_libmicrohttpd="yes"],
+	[with_libmicrohttpd="no (microhttpd.h not found)"])
+fi
+if test "x$with_libmicrohttpd" = "xyes"
+then
+	if test "x$LIBMICROHTTPD_LDFLAGS" != "x"
+	then
+		AC_MSG_NOTICE([libmicrohttpd LDFLAGS: $LIBMICROHTTPD_LDFLAGS])
+	fi
+	AC_CHECK_LIB(microhttpd, MHD_get_version,
+	[with_libmicrohttpd="yes"],
+	[with_libmicrohttpd="no (symbol 'microhttpd_info' not found)"])
+fi
+
+CPPFLAGS="$SAVE_CPPFLAGS"
+LDFLAGS="$SAVE_LDFLAGS"
+
+if test "x$with_libmicrohttpd" = "xyes"
+then
+	BUILD_WITH_LIBMICROHTTPD_CPPFLAGS="$LIBMICROHTTPD_CPPFLAGS"
+	BUILD_WITH_LIBMICROHTTPD_LDFLAGS="$LIBMICROHTTPD_LDFLAGS"
+	BUILD_WITH_LIBMICROHTTPD_LIBS="-lmicrohttpd"
+	AC_SUBST(BUILD_WITH_LIBMICROHTTPD_CPPFLAGS)
+	AC_SUBST(BUILD_WITH_LIBMICROHTTPD_LDFLAGS)
+	AC_SUBST(BUILD_WITH_LIBMICROHTTPD_LIBS)
+fi
+AM_CONDITIONAL(BUILD_WITH_LIBMICROHTTPD, test "x$with_libmicrohttpd" = "xyes")
+# }}}
 
 if test "x$ac_system" = "xSolaris"
 then
@@ -2909,6 +3237,54 @@ then
 	AC_SUBST(BUILD_WITH_LIBOPING_LDFLAGS)
 fi
 AM_CONDITIONAL(BUILD_WITH_LIBOPING, test "x$with_liboping" = "xyes")
+# }}}
+
+# --with-libz {{{
+with_libz_cppflags=""
+with_libz_libs="-lz"
+AC_ARG_WITH(libz, [AS_HELP_STRING([--with-libz@<:@=PREFIX@:>@], [Path to libz.])],
+[
+	if test "x$withval" != "xno" && test "x$withval" != "xyes"
+	then
+		with_libz_cppflags="-I$withval/include"
+		with_libz_libs="-L$withval/lib -lz"
+		with_libz="yes"
+	else
+		with_libz="$withval"
+	fi
+],
+[
+	with_libz="yes"
+])
+if test "x$with_libz" = "xyes"
+then
+	SAVE_CPPFLAGS="$CPPFLAGS"
+	CPPFLAGS="$with_libz_cppflags"
+	
+	AC_CHECK_HEADERS(zlib.h, [with_libz="yes"], [with_libz="no (zlib.h not found)"])
+
+	CPPFLAGS="$SAVE_CPPFLAGS"
+fi
+if test "x$with_libz" = "xyes"
+then
+	SAVE_LDFLAGS="$LDFLAGS"
+	SAVE_CPPFLAGS="$CPPFLAGS"
+	LDFLAGS="$with_libz_libs"
+	CPPFLAGS="$with_libz_cppflags"
+	
+	AC_CHECK_LIB(z, gzopen, [with_libz="yes"], [with_libz="no (libz not found)"])
+
+	LDFLAGS="$SAVE_LDFLAGS"
+	CPPFLAGS="$SAVE_CPPFLAGS"
+fi
+if test "x$with_libz" = "xyes"
+then
+	BUILD_WITH_LIBZ_CPPFLAGS="$with_libz_cppflags"
+	BUILD_WITH_LIBZ_LIBS="$with_libz_libs"
+	AC_SUBST(BUILD_WITH_LIBZ_CPPFLAGS)
+	AC_SUBST(BUILD_WITH_LIBZ_LIBS)
+fi
+AM_CONDITIONAL(BUILD_WITH_LIBZ, test "x$with_libz" = "xyes")
 # }}}
 
 # --with-oracle {{{
@@ -4765,6 +5141,7 @@ plugin_interface="no"
 plugin_ipmi="no"
 plugin_ipvs="no"
 plugin_irq="no"
+plugin_jsonrpc="no"
 plugin_libvirt="no"
 plugin_load="no"
 plugin_memory="no"
@@ -4773,6 +5150,7 @@ plugin_nfs="no"
 plugin_numa="no"
 plugin_perl="no"
 plugin_processes="no"
+plugin_procnetstat="no"
 plugin_protocols="no"
 plugin_serial="no"
 plugin_swap="no"
@@ -4807,6 +5185,7 @@ then
 	plugin_nfs="yes"
 	plugin_numa="yes"
 	plugin_processes="yes"
+	plugin_procnetstat="yes"
 	plugin_protocols="yes"
 	plugin_serial="yes"
 	plugin_swap="yes"
@@ -4865,6 +5244,7 @@ fi
 if test "x$with_procinfo" = "xyes"
 then
 	plugin_processes="yes"
+	plugin_procnetstat="yes"
 fi
 
 # Solaris
@@ -4872,7 +5252,10 @@ if test "x$with_kstat" = "xyes"
 then
 	plugin_nfs="yes"
 	plugin_uptime="yes"
+	plugin_processes="yes"
+	plugin_protocols="yes"
 	plugin_zfs_arc="yes"
+	plugin_vmem="yes"
 fi
 
 if test "x$with_devinfo$with_kstat" = "xyesyes"
@@ -4941,6 +5324,12 @@ then
 	plugin_memory="yes"
 	plugin_tcpconns="yes"
 fi
+
+if test "x$with_libmicrohttpd" = "xyes" && test "x$with_libjson" = "xyes"
+then
+	plugin_jsonrpc="yes"
+fi
+
 
 # Df plugin: Check if we know how to determine mount points first.
 #if test "x$have_listmntent" = "xyes"; then
@@ -5048,6 +5437,16 @@ then
 	plugin_users="yes"
 fi
 
+dnl jsonrpc topps extension (needs zlib)
+if test "x$with_libz" = "xyes"  && \
+	test "x$with_jsonrpc_topps" = "xyes"
+then
+	AC_DEFINE(JSONRPC_USE_TOPPS,        1, [Define to enable jsonrpc topps callbacks.])
+else
+	with_jsonrpc_topps=no
+fi
+AM_CONDITIONAL(BUILD_JSONRPC_USE_TOPPS, test "x$with_jsonrpc_topps" = "xyes")
+
 m4_divert_once([HELP_ENABLE], [
 collectd plugins:])
 
@@ -5076,6 +5475,7 @@ AC_PLUGIN([apcups],      [yes],                [Statistics of UPSes by APC])
 AC_PLUGIN([apple_sensors], [$with_libiokit],   [Apple's hardware sensors])
 AC_PLUGIN([aquaero],     [$with_libaquaero5],  [Aquaero's hardware sensors])
 AC_PLUGIN([ascent],      [$plugin_ascent],     [AscentEmu player statistics])
+AC_PLUGIN([basic_aggregator],      [yes],     [Basic Aggregator])
 AC_PLUGIN([battery],     [$plugin_battery],    [Battery statistics])
 AC_PLUGIN([bind],        [$plugin_bind],       [ISC Bind nameserver statistics])
 AC_PLUGIN([conntrack],   [$plugin_conntrack],  [nf_conntrack statistics])
@@ -5105,6 +5505,10 @@ AC_PLUGIN([iptables],    [$with_libiptc],      [IPTables rule counters])
 AC_PLUGIN([ipvs],        [$plugin_ipvs],       [IPVS connection statistics])
 AC_PLUGIN([irq],         [$plugin_irq],        [IRQ statistics])
 AC_PLUGIN([java],        [$with_java],         [Embed the Java Virtual Machine])
+AC_PLUGIN([jsonrpc],     [$plugin_jsonrpc],    [Json-RPC communication plugin])
+AC_PLUGIN([jsonrpc_base],         [$with_jsonrpc_base],         [Json-RPC : base])
+AC_PLUGIN([jsonrpc_perfwatcher],  [$with_jsonrpc_perfwatcher],  [Json-RPC : perfwatcher helpers])
+AC_PLUGIN([jsonrpc_topps],  [$with_jsonrpc_topps],  [Json-RPC : topps helpers])
 AC_PLUGIN([libvirt],     [$plugin_libvirt],    [Virtual machine statistics])
 AC_PLUGIN([load],        [$plugin_load],       [System load])
 AC_PLUGIN([logfile],     [yes],                [File logging plugin])
@@ -5132,6 +5536,7 @@ AC_PLUGIN([nfs],         [$plugin_nfs],        [NFS statistics])
 AC_PLUGIN([nginx],       [$with_libcurl],      [nginx statistics])
 AC_PLUGIN([notify_desktop], [$with_libnotify], [Desktop notifications])
 AC_PLUGIN([notify_email], [$with_libesmtp],    [Email notifier])
+AC_PLUGIN([notify_file], [$with_libz],		   [File notifications])
 AC_PLUGIN([ntpd],        [yes],                [NTPd statistics])
 AC_PLUGIN([numa],        [$plugin_numa],       [NUMA virtual memory statistics])
 AC_PLUGIN([nut],         [$with_libupsclient], [Network UPS tools statistics])
@@ -5147,6 +5552,7 @@ AC_PLUGIN([ping],        [$with_liboping],     [Network latency statistics])
 AC_PLUGIN([postgresql],  [$with_libpq],        [PostgreSQL database statistics])
 AC_PLUGIN([powerdns],    [yes],                [PowerDNS statistics])
 AC_PLUGIN([processes],   [$plugin_processes],  [Process statistics])
+AC_PLUGIN([procnetstat], [$plugin_procnetstat],[Network per process statistics])
 AC_PLUGIN([protocols],   [$plugin_protocols],  [Protocol (IP, TCP, ...) statistics])
 AC_PLUGIN([python],      [$with_python],       [Embed a Python interpreter])
 AC_PLUGIN([redis],       [$with_libcredis],    [Redis plugin])
@@ -5159,6 +5565,7 @@ AC_PLUGIN([sigrok],      [$with_libsigrok],    [sigrok acquisition sources])
 AC_PLUGIN([snmp],        [$with_libnetsnmp],   [SNMP querying plugin])
 AC_PLUGIN([statsd],      [yes],                [StatsD plugin])
 AC_PLUGIN([swap],        [$plugin_swap],       [Swap usage statistics])
+AC_PLUGIN([sysconfig],   [yes],                [Sysconfig plugin])
 AC_PLUGIN([syslog],      [$have_syslog],       [Syslog logging plugin])
 AC_PLUGIN([table],       [yes],                [Parsing of tabular data])
 AC_PLUGIN([tail],        [yes],                [Parsing of logfiles])
@@ -5174,6 +5581,7 @@ AC_PLUGIN([teamspeak2],  [yes],                [TeamSpeak2 server statistics])
 AC_PLUGIN([ted],         [$plugin_ted],        [Read The Energy Detective values])
 AC_PLUGIN([thermal],     [$plugin_thermal],    [Linux ACPI thermal zone statistics])
 AC_PLUGIN([threshold],   [yes],                [Threshold checking plugin])
+AC_PLUGIN([top],         [yes],                [Top notification])
 AC_PLUGIN([tokyotyrant], [$with_libtokyotyrant],  [TokyoTyrant database statistics])
 AC_PLUGIN([unixsock],    [yes],                [Unixsock communication plugin])
 AC_PLUGIN([uptime],      [$plugin_uptime],     [Uptime statistics])
@@ -5188,6 +5596,7 @@ AC_PLUGIN([write_http],  [$with_libcurl],      [HTTP output plugin])
 AC_PLUGIN([write_mongodb], [$with_libmongoc],  [MongoDB output plugin])
 AC_PLUGIN([write_redis], [$with_libcredis],    [Redis output plugin])
 AC_PLUGIN([write_riemann], [$have_protoc_c],   [Riemann output plugin])
+AC_PLUGIN([write_top],   [$with_libz],                [Top output plugin])
 AC_PLUGIN([xmms],        [$with_libxmms],      [XMMS statistics])
 AC_PLUGIN([zfs_arc],     [$plugin_zfs_arc],    [ZFS ARC statistics])
 
@@ -5369,10 +5778,12 @@ Configuration:
     libgcrypt . . . . . . $with_libgcrypt
     libiokit  . . . . . . $with_libiokit
     libiptc . . . . . . . $with_libiptc
+    libjson . . . . . . . $with_libjson
     libjvm  . . . . . . . $with_java
     libkstat  . . . . . . $with_kstat
     libkvm  . . . . . . . $with_libkvm
     libmemcached  . . . . $with_libmemcached
+    libmicrohttpd . . . . $with_libmicrohttpd
     libmnl  . . . . . . . $with_libmnl
     libmodbus . . . . . . $with_libmodbus
     libmysql  . . . . . . $with_libmysql
@@ -5404,6 +5815,7 @@ Configuration:
     protobuf-c  . . . . . $have_protoc_c
     oracle  . . . . . . . $with_oracle
     python  . . . . . . . $with_python
+    zlib  . . . . . . . . $with_libz
 
   Features:
     daemon mode . . . . . $enable_daemon
@@ -5420,6 +5832,7 @@ Configuration:
     aquaero . . . . . . . $enable_aquaero
     apple_sensors . . . . $enable_apple_sensors
     ascent  . . . . . . . $enable_ascent
+    basic_aggragator  . . $enable_basic_aggregator
     battery . . . . . . . $enable_battery
     bind  . . . . . . . . $enable_bind
     conntrack . . . . . . $enable_conntrack
@@ -5449,6 +5862,10 @@ Configuration:
     ipvs  . . . . . . . . $enable_ipvs
     irq . . . . . . . . . $enable_irq
     java  . . . . . . . . $enable_java
+    jsonrpc . . . . . . . $enable_jsonrpc
+    jsonrpc_base  . . . . $enable_jsonrpc_base
+    jsonrpc_perfwatcher . $enable_jsonrpc_perfwatcher
+    jsonrpc_topps . . . . $enable_jsonrpc_topps
     libvirt . . . . . . . $enable_libvirt
     load  . . . . . . . . $enable_load
     logfile . . . . . . . $enable_logfile
@@ -5475,6 +5892,7 @@ Configuration:
     nginx . . . . . . . . $enable_nginx
     notify_desktop  . . . $enable_notify_desktop
     notify_email  . . . . $enable_notify_email
+    notify_file . . . . . $enable_notify_file
     ntpd  . . . . . . . . $enable_ntpd
     numa  . . . . . . . . $enable_numa
     nut . . . . . . . . . $enable_nut
@@ -5489,6 +5907,7 @@ Configuration:
     postgresql  . . . . . $enable_postgresql
     powerdns  . . . . . . $enable_powerdns
     processes . . . . . . $enable_processes
+    procnetstat . . . . . $enable_procnetstat
     protocols . . . . . . $enable_protocols
     python  . . . . . . . $enable_python
     redis . . . . . . . . $enable_redis
@@ -5501,6 +5920,7 @@ Configuration:
     snmp  . . . . . . . . $enable_snmp
     statsd  . . . . . . . $enable_statsd
     swap  . . . . . . . . $enable_swap
+    sysconfig . . . . . . $enable_sysconfig
     syslog  . . . . . . . $enable_syslog
     table . . . . . . . . $enable_table
     tail  . . . . . . . . $enable_tail
@@ -5516,6 +5936,7 @@ Configuration:
     ted . . . . . . . . . $enable_ted
     thermal . . . . . . . $enable_thermal
     threshold . . . . . . $enable_threshold
+    top . . . . . . . . . $enable_top
     tokyotyrant . . . . . $enable_tokyotyrant
     unixsock  . . . . . . $enable_unixsock
     uptime  . . . . . . . $enable_uptime
@@ -5530,6 +5951,7 @@ Configuration:
     write_mongodb . . . . $enable_write_mongodb
     write_redis . . . . . $enable_write_redis
     write_riemann . . . . $enable_write_riemann
+    write_top . . . . . . $enable_write_top
     xmms  . . . . . . . . $enable_xmms
     zfs_arc . . . . . . . $enable_zfs_arc
 
