@@ -712,12 +712,15 @@ static void read_statistics_from_cache() { /* {{{ */
             if(0 < il->age) continue; /* old inode */
             if(0 == compare_ip_and_port(ps,il)) {
                 char plugin_instance[DATA_MAX_NAME_LEN];
+/* TODO : check why this code was written but is unused
                 char *name;
                 if(ps->re) {
                     name = ps->name;
                 } else {
                     name = pse->name;
                 }
+ * End of TODO
+ */
                 if(ps->ip[0]) {
                     if(ps->port) {
                         strncpy(plugin_instance, ps->name, sizeof(plugin_instance));
