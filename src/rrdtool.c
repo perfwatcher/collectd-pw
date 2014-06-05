@@ -96,7 +96,8 @@ static rrdcreate_config_t rrdcreate_config =
 	/* consolidation_functions = */ NULL,
 	/* consolidation_functions_num = */ 0,
 
-	/* async = */ 0
+	/* async = */ 0,
+	/* async_limit = */ 0
 };
 
 /* XXX: If you need to lock both, cache_lock and queue_lock, at the same time,
@@ -1015,6 +1016,8 @@ static int rrd_config (oconfig_item_t *ci)
       status = rc_config_get_int_positive (child, &rrdcreate_config.heartbeat);
     else if (strcasecmp ("CreateFilesAsync", key) == 0)
       status = cf_util_get_boolean (child, &rrdcreate_config.async);
+    else if (strcasecmp ("CreateFilesAsyncLimit", key) == 0)
+      status = cf_util_get_int (child, &rrdcreate_config.async_limit);
     else if (strcasecmp ("RRARows", key) == 0)
       status = rc_config_get_int_positive (child, &rrdcreate_config.rrarows);
     else if (strcasecmp ("RRATimespan", key) == 0)
