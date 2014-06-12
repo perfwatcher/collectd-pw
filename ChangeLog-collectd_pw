@@ -1,3 +1,15 @@
+2014-06-12 version 5.4.0-20140612
+
+Update on :
+
+- plugin/top
+
+New patch :
+- patch/rrdcreate_asynclimit
+
+Note : patch/rrdcreate_asynclimit needs some rewriting because of
+conflicts with patch/rrdcreate_new_options.
+
 2014-02-19 version 5.4.0-20140219
 
 Update on :
