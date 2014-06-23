@@ -255,7 +255,9 @@ int read_solaris_dev(char *path) {
 		size_t filename_size;
 		struct stat stat_buffer;
 		char *link_name = NULL;
+		size_t link_name_size = MAXNAMLEN+100;
 		char *physical_name_with_partition = NULL;
+		size_t physical_name_with_partition_size = MAXNAMELEN+1;
 
 		pc_name_max = pathconf(path, _PC_NAME_MAX);
 		len = offsetof(struct dirent, d_name) + pc_name_max + 1;
@@ -273,12 +275,12 @@ int read_solaris_dev(char *path) {
 		memcpy(filename, path, filename_offset);
 		filename[filename_offset++] = '/';
 
-		if(NULL == (link_name = malloc(MAXNAMLEN+1))) {
+		if(NULL == (link_name = malloc(link_name_size))) {
 				ERROR("Plugin disk : Not enough memory");
 				goto read_solaris_dev_error_label;
 		}
 
-		if(NULL == (physical_name_with_partition = malloc(MAXNAMLEN+1))) {
+		if(NULL == (physical_name_with_partition = malloc(physical_name_with_partition_size))) {
 				ERROR("Plugin disk : Not enough memory");
 				goto read_solaris_dev_error_label;
 		}
@@ -300,10 +302,20 @@ int read_solaris_dev(char *path) {
 				strncpy(filename+filename_offset, de->d_name, pc_name_max + 1);
 				if(0 != lstat(filename, &stat_buffer)) continue; /* lstat failed. Not interesting */
 				if(! S_ISLNK(stat_buffer.st_mode)) continue; /* Not a link. Not interesting */
-				if(-1 == (l = readlink(filename, link_name, MAXNAMLEN+1))) /* Could not read link. Not interesting */
+				while(-1 == (l = readlink(filename, link_name, link_name_size))) {
+						if(EFAULT == errno) {
+								link_name_size += 100;
+								if(NULL == (link_name = realloc(link_name, link_name_size))) {
+										ERROR("Plugin disk : Not enough memory");
+										goto read_solaris_dev_error_label;
+								}
+						} else {
+								continue; /* Cannot deal with this one */
+						}
+				}
 
-						/* Links are like "../../devices/xxx". Remove the beginning. */
-						link_name[l] = '\0';
+				/* Links are like "../../devices/xxx". Remove the beginning. */
+				link_name[l] = '\0';
 				for(l=0; link_name[l]; l++) {
 						if(!strncmp(link_name+l, "/devices/", sizeof("/devices/")-1)) break;
 				}
@@ -312,6 +324,13 @@ int read_solaris_dev(char *path) {
 
 				/* Search a ':' near the end for slices/partitions */
 				l2 = strlen(link_name+l);
+				if((l2+1) >= physical_name_with_partition_size) {
+						physical_name_with_partition_size = l2+100;
+						if(NULL == (physical_name_with_partition = realloc(physical_name_with_partition, physical_name_with_partition_size))) {
+								ERROR("Plugin disk : Not enough memory");
+								goto read_solaris_dev_error_label;
+						}
+				}
 				strncpy(physical_name_with_partition, link_name+l, l2+1);
 				while((l2 > 0) && (link_name[l+l2] != ':')) l2--;
 				if(link_name[l+l2] == ':') {
