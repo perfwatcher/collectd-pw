@@ -122,6 +122,7 @@ static _Bool           plugin_ctx_key_initialized = 0;
 static long            write_limit_high = 0;
 static long            write_limit_low = 0;
 
+static derive_t        stats_values_dropped = 0;
 static _Bool           record_statistics = 0;
 
 /*
@@ -154,17 +155,28 @@ static void plugin_update_internal_statistics (void) { /* {{{ */
 	vl.type_instance[0] = 0;
 	vl.values_len = 1;
 
-	/* Write queue length */
+	/* Write queue */
+	sstrncpy (vl.plugin_instance, "write_queue",
+			sizeof (vl.plugin_instance));
+
+	/* Write queue : queue length */
 	vl.values[0].gauge = (gauge_t) copy_write_queue_length;
-	sstrncpy (vl.type_instance, "write_queue",
-			sizeof (vl.type_instance));
 	sstrncpy (vl.type, "queue_length", sizeof (vl.type));
+	vl.type_instance[0] = 0;
 	plugin_dispatch_values (&vl);
 
-	/* Nb entry in cache tree */
+	/* Write queue : Values dropped (queue length > low limit) */
+	vl.values[0].derive = (derive_t) stats_values_dropped;
+	sstrncpy (vl.type, "derive", sizeof (vl.type));
+	sstrncpy (vl.type_instance, "dropped", sizeof (vl.type_instance));
+	plugin_dispatch_values (&vl);
+
+	/* Cache */
+	sstrncpy (vl.plugin_instance, "cache",
+			sizeof (vl.plugin_instance));
+
+	/* Cache : Nb entry in cache tree */
 	vl.values[0].gauge = (gauge_t) uc_get_size();
-	sstrncpy (vl.type_instance, "cache",
-			sizeof (vl.type_instance));
 	sstrncpy (vl.type, "nb_values", sizeof (vl.type));
 	vl.type_instance[0] = 0;
 	plugin_dispatch_values (&vl);
@@ -2115,9 +2127,14 @@ static _Bool check_drop_value (void) /* {{{ */
 int plugin_dispatch_values (value_list_t const *vl)
 {
 	int status;
+	static pthread_mutex_t statistics_lock = PTHREAD_MUTEX_INITIALIZER;
 
-	if (check_drop_value ())
+	if (check_drop_value ()) {
+		pthread_mutex_lock(&statistics_lock);
+		stats_values_dropped++;
+		pthread_mutex_unlock(&statistics_lock);
 		return (0);
+	}
 
 	status = plugin_write_enqueue (vl);
 	if (status != 0)
