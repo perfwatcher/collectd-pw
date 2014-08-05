@@ -1,3 +1,9 @@
+2014-08-05 version 5.4.0-20140805
+
+New patch :
+- patch/internal_statistics
+- patch/limit_write_queue_length_bugfix
+
 2014-06-25 version 5.4.0-20140625
 
 Update on :
