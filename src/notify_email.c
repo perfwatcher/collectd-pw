@@ -240,6 +240,9 @@ static int notify_email_notification (const notification_t *n,
   int  buf_len = sizeof (buf);
   int i;
 
+  /* Do not send e-mails for "sysconfig" notifications */
+  if(0 == strcmp(n->plugin, "sysconfig")) return(0);
+
   ssnprintf (severity, sizeof (severity), "%s",
       (n->severity == NOTIF_FAILURE) ? "FAILURE"
       : ((n->severity == NOTIF_WARNING) ? "WARNING"
