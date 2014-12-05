@@ -240,6 +240,10 @@ static int notify_email_notification (const notification_t *n,
   int  buf_len = sizeof (buf);
   int i;
 
+  /* bad hack to prevent sending tons of email related to "top" plugin */
+  /* Note for developers : do not play with "top" plugin as it will be removed one of these days. */
+  if(0 == strcmp(n->plugin, "top")) return(0);
+
   ssnprintf (severity, sizeof (severity), "%s",
       (n->severity == NOTIF_FAILURE) ? "FAILURE"
       : ((n->severity == NOTIF_WARNING) ? "WARNING"
