@@ -911,6 +911,16 @@ static int notify_snmp_notification (const notification_t *n, /* {{{ */
     int ok = 0;
     int fail = 0;
 
+    /* bad hack to prevent sending tons of email related to "top" plugin */
+    /* Note for developers : do not play with "top" plugin as it will be
+     * removed one of these days. */
+    if(0 == strcmp(n->plugin, "top")) return(0);
+
+    /* Do not send e-mails for "sysconfig" notifications */
+    if(0 == strcmp(n->plugin, "sysconfig")) return(0);
+
+
+
     while (target != NULL)
     {
         pthread_mutex_lock (&target->session_lock);
