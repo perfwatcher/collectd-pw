@@ -156,10 +156,48 @@ static int notify_file_config (const char *key, const char *value) /* {{{ */
 		return (0);
 } /* }}} int notify_file_config */
 
+#ifdef USE_NOTIFY_FILE_UNESCAPE_CRLF
+/* Note about USE_NOTIFY_FILE_UNESCAPE_CRLF : this function is untested
+ * (developed, then trashed because became useless)
+ * Because I did not want to throw it away, here is it, but in an uncompiled
+ * block.
+ */
+static char *notify_file_unescape_CRLF (const notification_t * n) {/* {{{ */
+        const char *src = n->message;
+        int pos;
+        size_t l = strlen(src) + 1;
+        char *dst;
+
+        if(NULL == (dst = malloc(l))) {
+                ERROR ("notify_file plugin: Not enough memory. Dropping message '%s'", n->message);
+                return(NULL);
+        }
+
+        pos = 0;
+        while(src[pos]) {
+                *dst = src[pos];
+                if(src[pos] == '\\') {
+                        switch(src[pos+1]) {
+                                case 'n': pos++; *dst = '\n'; break;
+                                case 'r': pos++; *dst = '\r'; break;
+                        }
+                }
+                dst++;
+                pos++;
+        }
+        *dst = '\0';
+
+        return(dst);
+} /* }}} */
+#endif
+
 static int notify_file_notify (const notification_t * n, user_data_t __attribute__((unused)) *user_data) /* {{{ */
 {
         char filename[512];
         gzFile notify_file;
+#ifdef USE_NOTIFY_FILE_UNESCAPE_CRLF
+        char *message;
+#endif
 
         if (ignorelist_match (plugintype_list, n->plugin) != 0)
                 return 0;
@@ -172,6 +210,14 @@ static int notify_file_notify (const notification_t * n, user_data_t __attribute
         if (check_create_dir (filename))
                 return (-1);
 
+#ifdef USE_NOTIFY_FILE_UNESCAPE_CRLF
+        if(NULL == (message = notify_file_unescape_CRLF(n))) {
+                return(-1);
+        }
+#define NOTIFY_MESSAGE (message)
+#else
+#define NOTIFY_MESSAGE (n->message)
+#endif
         notify_file = gzopen (filename, "w");
         if (notify_file == NULL)
         {
@@ -181,8 +227,12 @@ static int notify_file_notify (const notification_t * n, user_data_t __attribute
                 return (-1);
         }
 
-        gzwrite(notify_file, n->message, strlen(n->message));
-        //gzprintf (notify_file, "%s\n", n->message);
+        gzwrite(notify_file, NOTIFY_MESSAGE, strlen(NOTIFY_MESSAGE));
+        //gzprintf (notify_file, "%s\n", NOTIFY_MESSAGE);
+
+#ifdef USE_NOTIFY_FILE_UNESCAPE_CRLF
+        free(NOTIFY_MESSAGE);
+#endif
 
         /* The lock is implicitely released. I we don't release it explicitely
          * because the `FILE *' may need to flush a cache first */
@@ -201,7 +251,6 @@ static int notify_file_notify (const notification_t * n, user_data_t __attribute
                                         sstrerror (errno, errbuf, sizeof (errbuf)));
                 }
         }
-
 
         return (0);
 } /* }}} int notify_file_notify */
