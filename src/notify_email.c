@@ -244,6 +244,9 @@ static int notify_email_notification (const notification_t *n,
   /* Note for developers : do not play with "top" plugin as it will be removed one of these days. */
   if(0 == strcmp(n->plugin, "top")) return(0);
 
+  /* Do not send e-mails for "sysconfig" notifications */
+  if(0 == strcmp(n->plugin, "sysconfig")) return(0);
+
   ssnprintf (severity, sizeof (severity), "%s",
       (n->severity == NOTIF_FAILURE) ? "FAILURE"
       : ((n->severity == NOTIF_WARNING) ? "WARNING"
