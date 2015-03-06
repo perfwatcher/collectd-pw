@@ -33,7 +33,8 @@
 	{ "pw_rrd_info",         jsonrpc_cb_pw_rrd_info         }, \
 	{ "pw_rrd_check_files",  jsonrpc_cb_pw_rrd_check_files  }, \
 	{ "pw_rrd_flush",        jsonrpc_cb_pw_rrd_flush        }, \
-	{ "pw_rrd_graphonly",    jsonrpc_cb_pw_rrd_graphonly    },
+	{ "pw_rrd_graphonly",    jsonrpc_cb_pw_rrd_graphonly    }, \
+	{ "pw_rrd_get_points",    jsonrpc_cb_pw_rrd_get_points   },
 
 int jsonrpc_cb_pw_get_status      (struct json_object *params, struct json_object *result, const char **errorstring);
 int jsonrpc_cb_pw_get_metric      (struct json_object *params, struct json_object *result, const char **errorstring);
@@ -45,5 +46,6 @@ int jsonrpc_cb_pw_rrd_info        (struct json_object *params, struct json_objec
 int jsonrpc_cb_pw_rrd_check_files (struct json_object *params, struct json_object *result, const char **errorstring);
 int jsonrpc_cb_pw_rrd_flush       (struct json_object *params, struct json_object *result, const char **errorstring);
 int jsonrpc_cb_pw_rrd_graphonly   (struct json_object *params, struct json_object *result, const char **errorstring);
+int jsonrpc_cb_pw_rrd_get_points  (struct json_object *params, struct json_object *result, const char **errorstring);
 
 #endif /* JSONRPC_CB_PERFWATCHER_H */

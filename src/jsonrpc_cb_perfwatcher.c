@@ -308,6 +308,23 @@ static const char *jsonrpc_cb_get_param_string(struct json_object *params, char 
         return(str);
 } /* }}} jsonrpc_cb_get_param_string */
 
+int jsonrpc_cb_get_param_int(struct json_object *params, char *key, int *result, char *file, int line) { /* {{{ */
+        int val = 0;
+        struct json_object *obj = NULL;
+
+        /* Params : get the value for the given key */
+        if(NULL == (obj = json_object_object_get(params, key))) return(-1);
+        if(!json_object_is_type (obj, json_type_int)) return(-1);
+        errno = 0;
+        val = json_object_get_int(obj);
+        if(errno != 0) {
+                DEBUG(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Internal error %s:%d", file, line);
+                return(-1);
+        }
+        *result = val;
+        return(0);
+} /* }}} jsonrpc_cb_get_param_int */
+
 /* JSONRPC EXAMPLE SYNTAX for "pw_get_status" {{{
    {
        "jsonrpc": "2.0",
@@ -344,15 +361,7 @@ int jsonrpc_cb_pw_get_status (struct json_object *params, struct json_object *re
         RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_object);
 
         /* Params : get the "timeout" */
-        if(NULL == (obj = json_object_object_get(params, "timeout"))) {
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-        }
-        if(!json_object_is_type (obj, json_type_int)) {
-                return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
-        }
-        errno = 0;
-        timeout = json_object_get_int(obj);
-        if(errno != 0) {
+        if(0 != jsonrpc_cb_get_param_int(params, "timeout", &timeout, __FILE__, __LINE__)) {
                 return (JSONRPC_ERROR_CODE_32602_INVALID_PARAMS);
         }
         /* Params : get the "server" array
@@ -1146,7 +1155,7 @@ int jsonrpc_cb_pw_rrd_info (struct json_object *params, struct json_object *resu
         /* Parse the params */
         RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_object);
 
-        /* Params : get the "hostname" */
+        /* Params : get the "rrdfile" */
         if(NULL == (str = jsonrpc_cb_get_param_string(params, "rrdfile"))) {
                 rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
                 goto jsonrpc_cb_pw_rrd_info__any_error;
@@ -1700,4 +1709,232 @@ jsonrpc_cb_pw_rrd_graphonly__any_error:
 #endif
         return(rc);
 } /* }}} jsonrpc_cb_pw_rrd_graphonly */
+
+/* jsonrpc example syntax for "pw_rrd_get_points" {{{
+   {
+       "jsonrpc": "2.0",
+       "method" : "pw_rrd_get_points",
+       "params": { "start": <start tm>, "end": <end tm>, "rrdfile": <host/plugin-instance/type-instance.rrd", "cf": <cf> },
+       "id": 3
+   }
+   Note:
+     * cf is usually "AVERAGE". Can also be "MIN" or "MAX". Check with rrdtool * info to get the available cf in your rrd files
+}}} */
+int jsonrpc_cb_pw_rrd_get_points (struct json_object *params, struct json_object *result, const char **errorstring) { /* {{{ */
+#define LABEL_ANY_ERROR jsonrpc_cb_pw_rrd_get_points__any_error
+#define LABEL_INTERNAL_ERROR jsonrpc_cb_pw_rrd_get_points__internal_error
+        int r, rc;
+        int i,j;
+        struct json_object *resultobject = NULL;
+        int graph_argc;
+        char ** graph_argv = NULL;
+        const char *str;
+        char *path = NULL;
+        const char *param_cf;
+        char *cf = NULL;
+        size_t param_cf_len;
+        int param_start;
+        int param_end;
+        char *str_tm_start = NULL;
+        char *str_tm_end = NULL;
+        int flush_before = 1;
+        time_t r_start, r_end, ti;
+        unsigned long r_step;
+        unsigned long ds_cnt = 0;
+        rrd_value_t *data = NULL;
+        rrd_value_t *data_i = NULL;;
+        char **ds_namv = NULL;
+        struct json_object *ds_list = NULL;
+        struct json_object *values = NULL;
+
+        *errorstring = NULL;
+
+        /* Check first rrdtool path was defined */
+        if('\0' == jsonrpc_rrdtool_path[0]) {
+                ERROR (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "RRDToolPath is not defined in the configuration file. It is needed if you want to graph.");
+                if(NULL == (resultobject = json_object_new_boolean(1))) {
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(LABEL_INTERNAL_ERROR);
+                }
+                json_object_object_add(result, "result", resultobject);
+                return(0);
+        }
+
+
+        /* Check first if we are able to flush */
+        if('\0' == jsonrpc_rrdcached_daemon_address[0]) {
+                WARNING (OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "RRDCachedDaemonAddress is not defined in the configuration file. It is needed if you want to flush.");
+                flush_before = 0;
+        }
+
+        /* Parse the params */
+        RETURN_IF_WRONG_PARAMS_TYPE(params, json_type_object);
+
+        /* Params : get the "rrdfile" */
+        if(NULL == (str = jsonrpc_cb_get_param_string(params, "rrdfile"))) {
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto LABEL_ANY_ERROR;
+        }
+
+        if(0 != (r = jsonrpc_datadir_append_string(str, &path, 0))) {
+                rc = r;
+                goto LABEL_ANY_ERROR;
+        }
+
+        /* Params : get the "start" */
+        if(0 != jsonrpc_cb_get_param_int(params, "start", &param_start, __FILE__, __LINE__)) {
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto LABEL_ANY_ERROR;
+        }
+        if(NULL == (str_tm_start = malloc(20*sizeof(char)))) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory %s:%d", __FILE__, __LINE__);
+                goto LABEL_INTERNAL_ERROR;
+        }
+        snprintf(str_tm_start, 20, "%d", param_start);
+
+        /* Params : get the "end" */
+        if(0 != jsonrpc_cb_get_param_int(params, "end", &param_end, __FILE__, __LINE__)) {
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto LABEL_ANY_ERROR;
+        }
+        if(NULL == (str_tm_end = malloc(20*sizeof(char)))) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory %s:%d", __FILE__, __LINE__);
+                goto LABEL_INTERNAL_ERROR;
+        }
+        snprintf(str_tm_end, 20, "%d", param_end);
+
+        /* Params : get the "cf" */
+        if(NULL == (param_cf = jsonrpc_cb_get_param_string(params, "cf"))) {
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto LABEL_ANY_ERROR;
+        }
+        if(strcmp(param_cf, "AVERAGE") && strcmp(param_cf, "MIN") && strcmp(param_cf, "MAX")) {
+                WARNING(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "rrdtool fetch, got DS with wrong characters : %s / '%s' (%s:%d)", path, param_cf, __FILE__, __LINE__);
+                rc = JSONRPC_ERROR_CODE_32602_INVALID_PARAMS;
+                goto LABEL_ANY_ERROR;
+        }
+        if(NULL == (cf = strdup(param_cf))) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory %s:%d", __FILE__, __LINE__);
+                goto LABEL_INTERNAL_ERROR;
+        }
+        param_cf_len = strlen(param_cf);
+
+        /* Prepare the "rrdtool graph" command line */
+        graph_argc = 7 + (flush_before?2:0);
+
+        /* Allocate for graph_argc elements plus 1 NULL element for NULL
+         * terminated array
+         */
+        if(NULL == (graph_argv = calloc(1 + graph_argc, sizeof(*graph_argv)))) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "Could not allocate memory %s:%d", __FILE__, __LINE__);
+                goto LABEL_INTERNAL_ERROR;
+        }
+        /* Fill the graph_argv table :
+         * fetch --daemon jsonrpc_rrdcached_daemon_address <rrd file> <cf> -s <start> -e <end> 
+         */
+
+        i=0;
+        graph_argv[i++] = "fetch";
+        if(flush_before) {
+                graph_argv[i++] = "--daemon";
+                graph_argv[i++] = jsonrpc_rrdcached_daemon_address;
+        }
+        graph_argv[i++] = path;
+        graph_argv[i++] = cf;
+        graph_argv[i++] = "-s"; graph_argv[i++] = str_tm_start;
+        graph_argv[i++] = "-e"; graph_argv[i++] = str_tm_end;
+        graph_argv[i] = NULL; /* we allocated graph_argc + 1 elements so there is no bug here ! */
+        assert(i == graph_argc);
+
+        if(0 != rrd_fetch(graph_argc,graph_argv,&r_start,&r_end,&r_step, &ds_cnt, &ds_namv,&data)) {
+                ERROR(OUTPUT_PREFIX_JSONRPC_CB_PERFWATCHER "rrd_fetch failed (%s:%d)", __FILE__, __LINE__);
+                goto LABEL_INTERNAL_ERROR;
+        }
+
+        /* Create the result object */
+        if(NULL == (resultobject = json_object_new_object())) {
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(LABEL_INTERNAL_ERROR);
+        }
+
+        /* Create the array of DS */
+        if(NULL == (ds_list = json_object_new_array())) {
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(LABEL_INTERNAL_ERROR);
+        }
+        for(i=0; i< ds_cnt; i++) {
+                struct json_object *obj = NULL;
+                if(NULL == (obj = json_object_new_string(ds_namv[i]))) {
+                        json_object_put(ds_list);
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(LABEL_INTERNAL_ERROR);
+                }
+                json_object_array_add(ds_list,obj);
+        }
+        json_object_object_add(resultobject, "ds", ds_list);
+
+        /* Create the array of values */
+        if(NULL == (values = json_object_new_array())) {
+                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(LABEL_INTERNAL_ERROR);
+        }
+
+        data_i = data;
+        for(ti = r_start + r_step; ti <= r_end; ti += r_step) {
+                struct json_object *obj_value = NULL;
+                struct json_object *array = NULL;
+                if(NULL == (array = json_object_new_array())) {
+                        json_object_put(values);
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(LABEL_INTERNAL_ERROR);
+                }
+                if(NULL == (obj_value = json_object_new_int(ti))) {
+                        json_object_put(values);
+                        json_object_put(array);
+                        JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(LABEL_INTERNAL_ERROR);
+                }
+                json_object_array_add(array,obj_value);
+
+                for(j=0; j<ds_cnt; j++) {
+                        if(NULL == (obj_value = json_object_new_double(*(data_i++)))) {
+                                json_object_put(values);
+                                json_object_put(array);
+                                JSONRPC_CB_COULD_NOT_CREATE_A_JSON_OBJECT(LABEL_INTERNAL_ERROR);
+                        }
+                        json_object_array_add(array,obj_value);
+                }
+                json_object_array_add(values, array);
+        }
+        for(i=0; i< ds_cnt; i++) free(ds_namv[i]);
+        free(ds_namv); ds_namv = NULL;
+        free(data); data = NULL;
+        ds_cnt = 0;
+
+        json_object_object_add(resultobject, "values", values);
+
+
+        /* Last : add the "result" to the result object */
+        json_object_object_add(result, "result", resultobject);
+
+        if(graph_argv) free(graph_argv);
+        if(str_tm_start) free(str_tm_start);
+        if(str_tm_end) free(str_tm_end);
+        if(cf) free(cf);
+        if(path) free(path);
+
+        return(0);
+
+jsonrpc_cb_pw_rrd_get_points__internal_error:
+#undef LABEL_INTERNAL_ERROR
+        rc = JSONRPC_ERROR_CODE_32603_INTERNAL_ERROR;
+jsonrpc_cb_pw_rrd_get_points__any_error:
+#undef LABEL_ANY_ERROR
+        if(resultobject) json_object_put(resultobject);
+        if(str_tm_start) free(str_tm_start);
+        if(str_tm_end) free(str_tm_end);
+        if(graph_argv) free(graph_argv);
+        if(cf) free(cf);
+        if(path) free(path);
+        if(ds_cnt >0) {
+                for(i=0; i< ds_cnt; i++) free(ds_namv[i]);
+                free(ds_namv);
+                free(data);
+        }
+        return(rc);
+} /* }}} jsonrpc_cb_pw_rrd_get_points */
+
 /* vim: set fdm=marker sw=8 ts=8 tw=78 et : */
