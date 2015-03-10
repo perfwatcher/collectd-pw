@@ -1,0 +1,10 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "pw_rrd_get_points",
+	"params": {
+		"rrdfile" : "SERVER01/interface-eth0/if_octets.rrd",
+		"start": 1425566294 , "end": 1425652694, 
+		"cf": "AVERAGE"
+		},
+	"id": 3
+}

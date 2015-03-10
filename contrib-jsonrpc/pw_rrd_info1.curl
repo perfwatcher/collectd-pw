@@ -1,0 +1,6 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "pw_rrd_info",
+	"params": { "rrdfile" : "SERVER01/interface-eth0/if_octets.rrd" },
+	"id": 3
+}

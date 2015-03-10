@@ -1,0 +1,6 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "listval",
+	"params": null,
+	"id": 3
+}

@@ -1,0 +1,18 @@
+{"jsonrpc": "2.0", "method": "pw_rrd_check_files", 
+		"params": [
+				"/var/lib/collectd/SERVER01/memory/memory-buffered.rrd",
+				"/var/lib/collectd/SERVER01/memory/memory-cached.rrd",
+				"/var/lib/collectd/SERVER01/memory/memory-free.rrd",
+				"/var/lib/collectd/SERVER01/memory/memory-used.rrd",
+				"/var/lib/collectd/SERVER01/memory/percent-used.rrd",
+				"/var/lib/collectd/SERVER01/memory/memory-test_link.rrd",
+				"/var/lib/collectd/SERVER01/memory/memory-test_link1.rrd",
+				"/var/lib/collectd/SERVER01/memory/memory-test_link2.rrd",
+				"/var/lib/collectd/SERVER01/memory/memory-test_link3.rrd",
+				"/var/lib/collectd/SERVER01",
+				"SERVER01",
+				"SERVER01/memory/memory-free.rrd",
+				"SERVER01/memory/memory-buffered.rrd",
+				"SERVER01/memory/memory-test_link.rrd",
+				"SERVER01/memory/memory-test_link1.rrd"
+				], "id": 0}

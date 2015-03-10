@@ -1,0 +1,6 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "pw_get_dir_hosts",
+	"params": null,
+	"id": 3
+}

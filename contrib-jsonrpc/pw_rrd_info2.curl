@@ -1,0 +1,6 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "pw_rrd_info",
+	"params": { "rrdfile" : "SERVER01/memory/memory-free.rrd" },
+	"id": 3
+}

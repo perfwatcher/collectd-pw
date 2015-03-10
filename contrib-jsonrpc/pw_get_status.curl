@@ -1,0 +1,15 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "pw_get_status",
+	"params": { 
+		"timeout": 240, 
+		"server": [
+			"SERVER01",
+			"SERVER02",
+			"SERVER03",
+			"SERVER04",
+			"SERVER05"
+			]
+		},
+	"id": 3
+}
