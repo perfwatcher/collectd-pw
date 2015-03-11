@@ -1,3 +1,22 @@
+2015-03-11 version 5.4.0-20150311
+
+New patch :
+- backport/notify_snmp (from Collectd PR #545)
+
+Update on :
+- plugin/write_top
+- plugin/sysconfig
+- patch/limit_write_queue_length_bugfix
+- patch/internal_statistics
+
+Notes :
+- In release 5.4.0-20140805 a new global config parameters appears and is
+named InternalStatistics. This patch has been accepted upstream but that
+parameter has been renamed CollectInternalStats. In this release, we also
+rename it.
+- Internal statistics were collected with plugin name "internal". They are now
+collected with plugin name "collectd" (like in upstream Collectd).
+
 2014-08-05 version 5.4.0-20140805
 
 New patch :
