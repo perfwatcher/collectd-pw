@@ -1,0 +1,9 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "pw_rrd_flush",
+	"params": [ 
+		"SERVER01/memory/memory-cached.rrd",
+		"/var/lib/collectd/SERVER01/memory/memory-free.rrd"
+		],
+	"id": 3
+}

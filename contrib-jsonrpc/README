@@ -1,0 +1,9 @@
+This contrib section comes with jsonrpc plugin.
+
+With jsonrpc plugin, you can connect to Collectd with HTTP protocol and query some information in JSON-RPC.
+
+Those *.curl files are examples of what you can do.
+You can try them with run_curl.sh that is a convenience wrapper around curl.
+
+For more information, read the src/jsonrpc*.c files and pay attention to the comments.
+

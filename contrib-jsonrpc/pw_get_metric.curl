@@ -1,0 +1,1 @@
+{"jsonrpc": "2.0", "method": "pw_get_metric", "params": [ "SERVER01"], "id": 0}

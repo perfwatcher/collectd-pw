@@ -1,0 +1,15 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "topps_get_timeline",
+	"params": {
+		"hostname" : "SERVER02",
+		"start_tm" : 1372032000,
+		"end_tm" : 1372057200,
+		"interval" : 0,
+		"ignore_short_lived" : 90,
+		"ignore_resident" : true,
+		"timeout" : 60
+	},
+	"id": 3
+}
+

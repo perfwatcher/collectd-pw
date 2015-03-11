@@ -1,0 +1,11 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "topps_get_top",
+	"params": {
+		"hostname" : "SERVER02",
+		"tm" : 1360836672,
+		"end_tm" : 1360820000
+	},
+	"id": 3
+}
+

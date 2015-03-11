@@ -1,0 +1,15 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "getval",
+	"params": [
+			'SERVER01/load/load',
+			'SERVER01/cpu-total/nbcpu',
+			'SERVER01/memory/memory-free',
+			'SERVER01/memory/memory-used',
+			'SERVER01/memory/memory-buffered',
+			'SERVER01/memory/memory-cached'
+	],
+	"id": 3
+}
+
+

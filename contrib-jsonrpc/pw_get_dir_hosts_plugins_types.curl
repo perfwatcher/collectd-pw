@@ -1,0 +1,6 @@
+{
+	"jsonrpc": "2.0",
+	"method" : "pw_get_dir_types",
+	"params": { "hostname" : "SERVER01", "plugin" : "cpu-0" },
+	"id": 3
+}
